@@ -436,19 +436,27 @@ class SupplyChainGAPCalculator:
             (1 + merged['scrap_rate'] / 100)
         )
         
-        # Aggregate by material
+        # Build aggregation dict with only existing columns
         agg_cols = {
             'required_qty': 'sum',
+            id_col: 'nunique'
+        }
+        
+        # Add optional columns if they exist
+        optional_cols = {
             'material_pt_code': 'first',
             'material_name': 'first',
             'material_brand': 'first',
             'material_uom': 'first',
             'material_type': 'first',
             'is_primary': 'first',
-            'alternative_group': 'first',
             'alternative_priority': 'first',
-            id_col: 'nunique'
+            'primary_material_id': 'first'
         }
+        
+        for col, agg_func in optional_cols.items():
+            if col in merged.columns:
+                agg_cols[col] = agg_func
         
         raw_demand = merged.groupby('material_id').agg(agg_cols).reset_index()
         raw_demand.rename(columns={id_col: 'fg_product_count'}, inplace=True)
