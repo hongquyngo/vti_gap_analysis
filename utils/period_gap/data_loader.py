@@ -2,7 +2,7 @@
 """
 Simplified Data Loader for Period GAP Analysis
 With numeric safety and proper data handling
-Version 2.0 - Added ETA/ETD selection support for OC
+Version 3.0 - Adapted for VIETAPE schema (no schema prefix)
 """
 
 import streamlit as st
@@ -30,16 +30,21 @@ class PeriodGAPDataLoader:
     
     @st.cache_data(ttl=1800)
     def load_demand_oc(_self):
-        """Load OC (Order Confirmation) pending delivery data"""
+        """
+        Load OC (Order Confirmation) pending delivery data
+        View: outbound_oc_pending_delivery_view (VIETAPE - simplified without allocation)
+        """
         engine = get_db_engine()
-        query = "SELECT * FROM prostechvn.outbound_oc_pending_delivery_view;"
+        query = "SELECT * FROM outbound_oc_pending_delivery_view;"
         df = pd.read_sql(text(query), engine)
         
         # Ensure numeric columns
         df = _self._ensure_numeric_columns(df, [
             'selling_quantity', 'standard_quantity', 
             'pending_selling_delivery_quantity', 'pending_standard_delivery_quantity',
-            'total_amount_usd', 'outstanding_amount_usd', 'uom_conversion'
+            'total_amount_usd', 'outstanding_amount_usd', 
+            'original_selling_quantity', 'original_standard_quantity',
+            'total_delivered_selling_quantity', 'total_delivered_standard_quantity'
         ])
         
         logger.info(f"Loaded {len(df)} OC pending delivery records")
@@ -47,15 +52,20 @@ class PeriodGAPDataLoader:
 
     @st.cache_data(ttl=1800)
     def load_demand_forecast(_self):
-        """Load customer demand forecast data"""
+        """
+        Load customer demand forecast data
+        View: customer_demand_forecast_full_view
+        """
         engine = get_db_engine()
-        query = "SELECT * FROM prostechvn.customer_demand_forecast_full_view;"
+        query = "SELECT * FROM customer_demand_forecast_full_view;"
         df = pd.read_sql(text(query), engine)
         
         # Ensure numeric columns
         df = _self._ensure_numeric_columns(df, [
             'selling_quantity', 'standard_quantity',
-            'total_amount_usd', 'standard_unit_price_usd'
+            'total_amount_usd', 'standard_unit_price_usd', 'total_amount',
+            'total_allocated_qty_standard', 'effective_allocated_qty_standard',
+            'pending_allocated_qty_standard', 'allocation_coverage_percent'
         ])
         
         logger.info(f"Loaded {len(df)} forecast records")
@@ -63,14 +73,19 @@ class PeriodGAPDataLoader:
     
     @st.cache_data(ttl=1800)
     def load_inventory(_self):
-        """Load current inventory data"""
+        """
+        Load current inventory data
+        View: inventory_detailed_view
+        """
         engine = get_db_engine()
-        query = "SELECT * FROM prostechvn.inventory_detailed_view"
+        query = "SELECT * FROM inventory_detailed_view"
         df = pd.read_sql(text(query), engine)
         
         # Ensure numeric columns
         df = _self._ensure_numeric_columns(df, [
-            'remaining_quantity', 'inventory_value_usd'
+            'remaining_quantity', 'inventory_value_usd', 
+            'initial_stock_in_quantity', 'average_landed_cost_usd',
+            'days_in_warehouse'
         ])
         
         logger.info(f"Loaded {len(df)} inventory records")
@@ -78,14 +93,21 @@ class PeriodGAPDataLoader:
 
     @st.cache_data(ttl=1800)
     def load_pending_can(_self):
-        """Load pending CAN (Container Arrival Note) data"""
+        """
+        Load pending CAN (Container Arrival Note) data
+        View: can_pending_stockin_view
+        """
         engine = get_db_engine()
-        query = "SELECT * FROM prostechvn.can_pending_stockin_view"
+        query = "SELECT * FROM can_pending_stockin_view"
         df = pd.read_sql(text(query), engine)
         
         # Ensure numeric columns
         df = _self._ensure_numeric_columns(df, [
-            'pending_quantity', 'pending_value_usd'
+            'pending_quantity', 'pending_value_usd',
+            'arrival_quantity', 'total_stocked_in',
+            'buying_quantity', 'standard_quantity',
+            'pending_percent', 'days_since_arrival',
+            'standard_unit_cost_usd', 'landed_cost_usd'
         ])
         
         logger.info(f"Loaded {len(df)} pending CAN records")
@@ -93,10 +115,13 @@ class PeriodGAPDataLoader:
 
     @st.cache_data(ttl=1800)
     def load_pending_po(_self):
-        """Load pending PO data"""
+        """
+        Load pending PO data
+        View: purchase_order_full_view (filtered for pending arrivals)
+        """
         engine = get_db_engine()
         query = """
-        SELECT * FROM prostechvn.purchase_order_full_view
+        SELECT * FROM purchase_order_full_view
         WHERE pending_standard_arrival_quantity > 0
         """
         df = pd.read_sql(text(query), engine)
@@ -104,7 +129,12 @@ class PeriodGAPDataLoader:
         # Ensure numeric columns
         df = _self._ensure_numeric_columns(df, [
             'pending_standard_arrival_quantity', 'outstanding_arrival_amount_usd',
-            'buying_quantity', 'purchase_unit_cost'
+            'buying_quantity', 'standard_quantity', 'purchase_unit_cost',
+            'total_amount_usd', 'standard_unit_cost_usd',
+            'original_buying_quantity', 'original_standard_quantity',
+            'effective_buying_quantity', 'effective_standard_quantity',
+            'cancelled_buying_quantity', 'cancelled_standard_quantity',
+            'total_standard_arrived_quantity', 'arrival_completion_percent'
         ])
         
         logger.info(f"Loaded {len(df)} pending PO records")
@@ -112,17 +142,21 @@ class PeriodGAPDataLoader:
 
     @st.cache_data(ttl=1800)
     def load_pending_wh_transfer(_self):
-        """Load pending Warehouse Transfer data"""
+        """
+        Load pending Warehouse Transfer data
+        View: warehouse_transfer_details_view (filtered for incomplete transfers)
+        """
         engine = get_db_engine()
         query = """
-        SELECT * FROM prostechvn.warehouse_transfer_details_view wtdv
+        SELECT * FROM warehouse_transfer_details_view wtdv
         WHERE wtdv.is_completed = 0
         """
         df = pd.read_sql(text(query), engine)
         
         # Ensure numeric columns
         df = _self._ensure_numeric_columns(df, [
-            'transfer_quantity', 'warehouse_transfer_value_usd'
+            'transfer_quantity', 'warehouse_transfer_value_usd',
+            'average_landed_cost_usd'
         ])
         
         logger.info(f"Loaded {len(df)} pending WH transfer records")
@@ -161,6 +195,7 @@ class PeriodGAPDataLoader:
                 df["etd"] = pd.to_datetime(df["etd"], errors="coerce")
         else:
             # For OC, use selected field (ETA or ETD)
+            # Note: VIETAPE view uses COALESCE(adjust_etd, etd) and COALESCE(adjust_eta, eta)
             if oc_date_field == "ETA" and 'eta' in df.columns:
                 df["demand_date"] = pd.to_datetime(df["eta"], errors="coerce")
             elif oc_date_field == "ETD" and 'etd' in df.columns:
@@ -246,6 +281,7 @@ class PeriodGAPDataLoader:
             inv_df.get("inventory_value_usd", 0), errors="coerce"
         ).fillna(0)
         
+        # VIETAPE: legal_entity mapped from owning_company_name
         inv_df["legal_entity"] = inv_df.get("owning_company_name", '')
         inv_df["supply_number"] = inv_df.get("inventory_history_id", '').astype(str)
         
@@ -266,7 +302,7 @@ class PeriodGAPDataLoader:
         can_df = can_df.copy()
         can_df["source_type"] = "Pending CAN"
         
-        # Use arrival_date
+        # Use arrival_date (VIETAPE view already uses COALESCE(adjust_arrival_date, arrival_date))
         if 'arrival_date' in can_df.columns:
             can_df["arrival_date"] = pd.to_datetime(can_df["arrival_date"], errors="coerce")
             can_df["date_ref"] = can_df["arrival_date"]
@@ -282,8 +318,13 @@ class PeriodGAPDataLoader:
             can_df.get("pending_value_usd", 0), errors="coerce"
         ).fillna(0)
         
+        # VIETAPE: legal_entity mapped from consignee
         can_df["legal_entity"] = can_df.get("consignee", '')
         can_df["supply_number"] = can_df.get("arrival_note_number", '').astype(str)
+        
+        # Additional info from VIETAPE view
+        if 'vendor' in can_df.columns:
+            can_df["vendor_name"] = can_df["vendor"]
         
         return can_df
 
@@ -292,7 +333,7 @@ class PeriodGAPDataLoader:
         po_df = po_df.copy()
         po_df["source_type"] = "Pending PO"
         
-        # Use eta
+        # Use eta (VIETAPE view already uses COALESCE(adjust_eta, eta))
         if 'eta' in po_df.columns:
             po_df["eta"] = pd.to_datetime(po_df["eta"], errors="coerce")
             po_df["date_ref"] = po_df["eta"]
@@ -308,6 +349,7 @@ class PeriodGAPDataLoader:
             po_df.get("outstanding_arrival_amount_usd", 0), errors="coerce"
         ).fillna(0)
         
+        # VIETAPE: legal_entity is already available as buyer.english_name
         if 'legal_entity' not in po_df.columns:
             po_df["legal_entity"] = ''
         
@@ -349,6 +391,7 @@ class PeriodGAPDataLoader:
             wht_df.get("warehouse_transfer_value_usd", 0), errors="coerce"
         ).fillna(0)
         
+        # VIETAPE: legal_entity mapped from owning_company_name
         wht_df["legal_entity"] = wht_df.get("owning_company_name", '')
         wht_df["supply_number"] = wht_df.get("warehouse_transfer_line_id", '').astype(str)
         
@@ -364,7 +407,7 @@ class PeriodGAPDataLoader:
         # Transfer route
         if 'from_warehouse' in wht_df.columns and 'to_warehouse' in wht_df.columns:
             wht_df["transfer_route"] = (
-                wht_df["from_warehouse"] + " → " + wht_df["to_warehouse"]
+                wht_df["from_warehouse"].astype(str) + " → " + wht_df["to_warehouse"].astype(str)
             )
         
         return wht_df
@@ -411,7 +454,9 @@ class PeriodGAPDataLoader:
             "days_in_transfer", "from_warehouse", "to_warehouse",
             "arrival_date", "eta", "transfer_date",
             "po_number", "po_line_id", "buying_quantity", "buying_uom", 
-            "purchase_unit_cost", "vendor_name"
+            "purchase_unit_cost", "vendor_name",
+            # VIETAPE specific columns
+            "batch_number", "warehouse_name", "arrival_note_number"
         ]
         
         final_cols = standard_cols.copy()
@@ -429,7 +474,7 @@ class PeriodGAPDataLoader:
         Get combined demand data with numeric safety
         
         Args:
-            sources: List of demand sources
+            sources: List of demand sources ("OC", "Forecast")
             include_converted: Whether to include converted forecasts
             oc_date_field: Which date field to use for OC ("ETA" or "ETD")
         """
