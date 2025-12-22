@@ -488,13 +488,25 @@ class SupplyChainGAPCalculator:
             return pd.DataFrame(), {}, pd.DataFrame()
         
         # Aggregate supply by material
+        # Note: raw_supply_df comes from raw_material_supply_summary_view which already has total_supply
         if raw_supply_df.empty:
             supply_agg = pd.DataFrame(columns=['material_id', 'total_supply'])
         else:
-            supply_agg = raw_supply_df.groupby('material_id').agg({
-                'available_quantity': 'sum'
-            }).reset_index()
-            supply_agg.rename(columns={'available_quantity': 'total_supply'}, inplace=True)
+            # Check which column to use for aggregation
+            if 'total_supply' in raw_supply_df.columns:
+                # Already aggregated (from summary view)
+                supply_agg = raw_supply_df[['material_id', 'total_supply']].copy()
+                # Group in case of duplicates
+                supply_agg = supply_agg.groupby('material_id')['total_supply'].sum().reset_index()
+            elif 'available_quantity' in raw_supply_df.columns:
+                # Detail view - need to aggregate
+                supply_agg = raw_supply_df.groupby('material_id').agg({
+                    'available_quantity': 'sum'
+                }).reset_index()
+                supply_agg.rename(columns={'available_quantity': 'total_supply'}, inplace=True)
+            else:
+                # Fallback - empty
+                supply_agg = pd.DataFrame(columns=['material_id', 'total_supply'])
         
         # Merge demand with supply
         raw_gap = raw_demand_df.merge(supply_agg, on='material_id', how='left')
@@ -566,21 +578,23 @@ class SupplyChainGAPCalculator:
         if alternatives.empty:
             return pd.DataFrame()
         
-        # Match alternatives to primaries by alternative_group
-        if 'alternative_group' not in alternatives.columns:
+        # Match alternatives to primaries by primary_material_id
+        # (alternative materials have primary_material_id pointing to their primary)
+        if 'primary_material_id' not in alternatives.columns:
             return pd.DataFrame()
         
         results = []
         for _, primary in primary_shortage.iterrows():
-            alt_group = primary.get('alternative_group')
-            if pd.isna(alt_group):
+            primary_id = primary.get('material_id')
+            if pd.isna(primary_id):
                 continue
             
-            group_alts = alternatives[alternatives['alternative_group'] == alt_group]
+            # Find alternatives that reference this primary
+            group_alts = alternatives[alternatives['primary_material_id'] == primary_id]
             for _, alt in group_alts.iterrows():
                 can_cover = alt.get('net_gap', 0) >= abs(primary.get('net_gap', 0))
                 results.append({
-                    'primary_material_id': primary['material_id'],
+                    'primary_material_id': primary_id,
                     'primary_pt_code': primary.get('material_pt_code'),
                     'primary_net_gap': primary.get('net_gap'),
                     'alternative_material_id': alt['material_id'],
