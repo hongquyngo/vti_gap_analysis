@@ -1,11 +1,12 @@
-# utils/net_gap/data_loader.py - Production Ready Version
+# utils/net_gap/data_loader.py - VERSION 4.6 (Simplified Demand View)
 
 """
-Data Loader for GAP Analysis - Production Ready with All Fixes
-- Uses correct logic from stable version (products/brands from views)
-- Fixed missing avg_daily_demand column issue
-- Fixed SQLAlchemy execute() syntax
-- Added expired inventory support
+Data Loader for GAP Analysis - VERSION 4.6
+CHANGES FROM 4.5:
+- Updated for simplified unified_demand_view (VIETAPE VERSION)
+- Removed allocation-related fields (is_allocated, allocated_quantity, etc.)
+- Added new fields: demand_priority, aging_days, selling_uom, uom_conversion
+- Simplified _process_demand_dataframe without allocation boolean handling
 """
 
 import pandas as pd
@@ -872,11 +873,12 @@ class GAPDataLoader:
         exclude_products: bool,
         exclude_brands: bool
     ) -> Tuple[str, Dict[str, Any]]:
-        """Build demand query"""
+        """Build demand query - Updated for simplified view (no allocation)"""
         
         query_parts = ["""
             SELECT 
                 demand_source,
+                demand_priority,
                 product_id,
                 product_name,
                 brand,
@@ -891,13 +893,18 @@ class GAPDataLoader:
                 days_to_required,
                 demand_status,
                 urgency_level,
-                is_allocated,
-                allocated_quantity,
-                unallocated_quantity,
                 selling_unit_price,
                 total_value_usd,
                 demand_reference_id,
-                entity_name
+                source_line_id,
+                source_document_number,
+                source_document_date,
+                entity_name,
+                aging_days,
+                selling_uom,
+                uom_conversion,
+                total_delivered_standard_quantity,
+                original_standard_quantity
             FROM unified_demand_view
             WHERE 1=1
         """]
@@ -954,19 +961,15 @@ class GAPDataLoader:
         ])
     
     def _get_empty_demand_dataframe(self) -> pd.DataFrame:
-        """Return empty demand DataFrame with proper schema to prevent KeyError"""
+        """Return empty demand DataFrame with proper schema (simplified, no allocation)"""
         return pd.DataFrame(columns=[
             'demand_source', 'demand_priority', 'product_id', 'product_name',
             'brand', 'pt_code', 'package_size', 'standard_uom', 'customer',
             'customer_code', 'customer_po_number', 'required_quantity',
             'required_date', 'days_to_required', 'demand_status', 'urgency_level',
-            'is_allocated', 'allocation_count', 'allocation_coverage_percent',
-            'allocated_quantity', 'unallocated_quantity', 'is_over_committed',
-            'is_pending_over_allocated', 'over_committed_qty_standard',
-            'pending_over_allocated_qty_standard', 'selling_unit_price',
-            'total_value_usd', 'demand_reference_id', 'source_line_id',
-            'source_document_number', 'source_document_date', 'entity_name',
-            'aging_days', 'selling_uom', 'uom_conversion',
+            'selling_unit_price', 'total_value_usd', 'demand_reference_id',
+            'source_line_id', 'source_document_number', 'source_document_date',
+            'entity_name', 'aging_days', 'selling_uom', 'uom_conversion',
             'total_delivered_standard_quantity', 'original_standard_quantity'
         ])
     
@@ -1001,7 +1004,7 @@ class GAPDataLoader:
         return df
     
     def _process_demand_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Process and normalize demand dataframe"""
+        """Process and normalize demand dataframe (simplified, no allocation)"""
         
         # Convert date columns
         date_cols = ['required_date', 'source_document_date']
@@ -1011,24 +1014,15 @@ class GAPDataLoader:
         
         # Ensure numeric columns
         numeric_cols = [
-            'product_id', 'required_quantity', 'allocated_quantity',
-            'unallocated_quantity', 'days_to_required', 'selling_unit_price',
-            'total_value_usd'
+            'product_id', 'demand_priority', 'required_quantity',
+            'days_to_required', 'selling_unit_price', 'total_value_usd',
+            'aging_days', 'uom_conversion',
+            'total_delivered_standard_quantity', 'original_standard_quantity'
         ]
         
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
-        # Handle boolean columns
-        bool_columns = ['is_allocated', 'is_over_committed']
-        for col in bool_columns:
-            if col in df.columns:
-                df[col] = df[col].map({
-                    'Yes': True, 'No': False,
-                    1: True, 0: False,
-                    True: True, False: False
-                }).fillna(False)
         
         # Normalize text fields
         text_cols = ['pt_code', 'product_name', 'brand', 'standard_uom',
