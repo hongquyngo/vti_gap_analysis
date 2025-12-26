@@ -251,8 +251,8 @@ class SupplyChainGAPCalculator:
                     gap_df.drop(columns=[f'{col}_demand'], inplace=True)
         
         # Fill NaN
-        gap_df['total_supply'] = gap_df.get('total_supply', 0).fillna(0)
-        gap_df['total_demand'] = gap_df.get('total_demand', 0).fillna(0)
+        gap_df['total_supply'] = gap_df['total_supply'].fillna(0) if 'total_supply' in gap_df.columns else 0
+        gap_df['total_demand'] = gap_df['total_demand'].fillna(0) if 'total_demand' in gap_df.columns else 0
         
         # Add safety stock
         if include_safety and safety_stock_df is not None and not safety_stock_df.empty:
@@ -261,7 +261,7 @@ class SupplyChainGAPCalculator:
                 on='product_id',
                 how='left'
             )
-            gap_df['safety_stock_qty'] = gap_df.get('safety_stock_qty', 0).fillna(0)
+            gap_df['safety_stock_qty'] = gap_df['safety_stock_qty'].fillna(0) if 'safety_stock_qty' in gap_df.columns else 0
         else:
             gap_df['safety_stock_qty'] = 0
         
@@ -284,9 +284,10 @@ class SupplyChainGAPCalculator:
         gap_df['priority'] = gap_df['gap_status'].apply(lambda x: STATUS_CONFIG.get(x, {}).get('priority', 99))
         
         # At risk value
+        selling_price = gap_df['selling_unit_price'].fillna(0) if 'selling_unit_price' in gap_df.columns else 0
         gap_df['at_risk_value'] = np.where(
             gap_df['net_gap'] < 0,
-            abs(gap_df['net_gap']) * gap_df.get('selling_unit_price', 0).fillna(0),
+            abs(gap_df['net_gap']) * selling_price,
             0
         )
         
@@ -426,9 +427,9 @@ class SupplyChainGAPCalculator:
         # Calculate required quantity
         # required_qty = (fg_shortage / output_qty) * quantity_per_output * (1 + scrap_rate/100)
         merged['fg_shortage'] = merged['fg_shortage'].abs()
-        merged['bom_output_quantity'] = merged.get('bom_output_quantity', 1).fillna(1).replace(0, 1)
-        merged['quantity_per_output'] = merged.get('quantity_per_output', 1).fillna(1)
-        merged['scrap_rate'] = merged.get('scrap_rate', 0).fillna(0)
+        merged['bom_output_quantity'] = merged['bom_output_quantity'].fillna(1).replace(0, 1) if 'bom_output_quantity' in merged.columns else 1
+        merged['quantity_per_output'] = merged['quantity_per_output'].fillna(1) if 'quantity_per_output' in merged.columns else 1
+        merged['scrap_rate'] = merged['scrap_rate'].fillna(0) if 'scrap_rate' in merged.columns else 0
         
         merged['required_qty'] = (
             (merged['fg_shortage'] / merged['bom_output_quantity']) *
@@ -467,7 +468,7 @@ class SupplyChainGAPCalculator:
             mo_demand.rename(columns={'pending_qty': 'existing_mo_demand'}, inplace=True)
             
             raw_demand = raw_demand.merge(mo_demand, on='material_id', how='left')
-            raw_demand['existing_mo_demand'] = raw_demand.get('existing_mo_demand', 0).fillna(0)
+            raw_demand['existing_mo_demand'] = raw_demand['existing_mo_demand'].fillna(0) if 'existing_mo_demand' in raw_demand.columns else 0
             raw_demand['total_required_qty'] = raw_demand['required_qty'] + raw_demand['existing_mo_demand']
         else:
             raw_demand['existing_mo_demand'] = 0
@@ -510,7 +511,7 @@ class SupplyChainGAPCalculator:
         
         # Merge demand with supply
         raw_gap = raw_demand_df.merge(supply_agg, on='material_id', how='left')
-        raw_gap['total_supply'] = raw_gap.get('total_supply', 0).fillna(0)
+        raw_gap['total_supply'] = raw_gap['total_supply'].fillna(0) if 'total_supply' in raw_gap.columns else 0
         
         # Add safety stock
         if raw_safety_stock_df is not None and not raw_safety_stock_df.empty:
@@ -519,7 +520,7 @@ class SupplyChainGAPCalculator:
                 on='material_id',
                 how='left'
             )
-            raw_gap['safety_stock_qty'] = raw_gap.get('safety_stock_qty', 0).fillna(0)
+            raw_gap['safety_stock_qty'] = raw_gap['safety_stock_qty'].fillna(0) if 'safety_stock_qty' in raw_gap.columns else 0
         else:
             raw_gap['safety_stock_qty'] = 0
         
