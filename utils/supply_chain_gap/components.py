@@ -12,7 +12,8 @@ import logging
 
 from .constants import (
     STATUS_CONFIG, GAP_CATEGORIES, PRODUCT_TYPES, 
-    ACTION_TYPES, RAW_MATERIAL_STATUS, UI_CONFIG
+    ACTION_TYPES, RAW_MATERIAL_STATUS, UI_CONFIG,
+    FIELD_TOOLTIPS, FORMULA_HELP
 )
 from .result import SupplyChainGAPResult
 
@@ -415,3 +416,222 @@ def render_pagination(current_page: int, total_pages: int, key_prefix: str = "ma
             return total_pages
     
     return current_page
+
+
+# =============================================================================
+# HELP COMPONENTS
+# =============================================================================
+
+def render_field_tooltip(field_name: str) -> str:
+    """Get tooltip text for a field"""
+    return FIELD_TOOLTIPS.get(field_name, '')
+
+
+def render_help_icon(field_name: str, key: str = None):
+    """Render help icon with tooltip for a field"""
+    tooltip = FIELD_TOOLTIPS.get(field_name, '')
+    if tooltip:
+        st.markdown(
+            f'<span title="{tooltip}" style="cursor: help; color: #6B7280;">ℹ️</span>',
+            unsafe_allow_html=True
+        )
+
+
+def render_formula_help_section(section_key: str = 'all'):
+    """
+    Render formula help section.
+    
+    Args:
+        section_key: 'level_1', 'level_2', 'classification', 'status_thresholds', 'actions', or 'all'
+    """
+    
+    if section_key == 'all':
+        sections = ['level_1', 'level_2', 'classification', 'status_thresholds', 'actions']
+    else:
+        sections = [section_key] if section_key in FORMULA_HELP else []
+    
+    for key in sections:
+        section = FORMULA_HELP.get(key, {})
+        if not section:
+            continue
+        
+        st.markdown(f"### {section.get('title', key)}")
+        st.caption(section.get('description', ''))
+        
+        # Render formulas if present
+        if 'formulas' in section:
+            formula_data = []
+            for formula in section['formulas']:
+                formula_data.append({
+                    'Field': f"`{formula[0]}`",
+                    'Formula': f"`{formula[1]}`",
+                    'Description': formula[2]
+                })
+            st.table(formula_data)
+        
+        # Render items if present (for classification, actions)
+        if 'items' in section:
+            for item in section['items']:
+                if len(item) == 2:
+                    st.markdown(f"- **{item[0]}**: {item[1]}")
+                elif len(item) == 3:
+                    st.markdown(f"- {item[2]} **{item[0]}**: {item[1]}")
+        
+        # Render thresholds (for status_thresholds)
+        if 'shortage' in section:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("**🔴 Shortage Levels**")
+                for status, threshold, icon in section['shortage']:
+                    st.markdown(f"{icon} `{status}`: Coverage {threshold}")
+            
+            with col2:
+                st.markdown("**🟢 Surplus Levels**")
+                for status, threshold, icon in section['surplus']:
+                    st.markdown(f"{icon} `{status}`: Coverage {threshold}")
+        
+        st.divider()
+
+
+def render_help_dialog():
+    """Render help dialog/expander with all formula information"""
+    
+    with st.expander("📖 **Hướng dẫn & Công thức tính toán**", expanded=False):
+        
+        # Quick reference tabs
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📊 FG GAP",
+            "🧪 Raw Material",
+            "📈 Status",
+            "📋 Actions"
+        ])
+        
+        with tab1:
+            _render_fg_gap_help()
+        
+        with tab2:
+            _render_raw_material_help()
+        
+        with tab3:
+            _render_status_help()
+        
+        with tab4:
+            _render_actions_help()
+
+
+def _render_fg_gap_help():
+    """Render FG GAP help content"""
+    
+    st.markdown("### 📊 Level 1: FG GAP (Finished Goods)")
+    st.caption("Phân tích chênh lệch cung-cầu sản phẩm thành phẩm")
+    
+    st.code("""
+total_supply = ∑ available_quantity (per product)
+total_demand = ∑ required_quantity (per product)
+safety_gap = total_supply - safety_stock_qty
+available_supply = MAX(0, safety_gap)
+net_gap = available_supply - total_demand
+coverage_ratio = available_supply / total_demand
+at_risk_value = |net_gap| × selling_price (nếu shortage)
+    """, language="text")
+    
+    st.markdown("""
+    **Giải thích:**
+    - `total_supply`: Tổng nguồn cung từ Inventory, CAN Pending, Transfer, PO
+    - `total_demand`: Tổng nhu cầu từ Confirmed Orders và Forecast
+    - `safety_gap`: Nguồn cung sau khi trừ tồn kho an toàn
+    - `available_supply`: Nguồn cung khả dụng (không thể âm)
+    - `net_gap`: Dương = Surplus, Âm = Shortage
+    - `coverage_ratio`: Tỷ lệ đáp ứng nhu cầu (%)
+    - `at_risk_value`: Giá trị rủi ro nếu không đáp ứng được nhu cầu
+    """)
+
+
+def _render_raw_material_help():
+    """Render Raw Material help content"""
+    
+    st.markdown("### 🧪 Level 2: Raw Material GAP")
+    st.caption("Phân tích nguyên vật liệu cho Manufacturing products có shortage")
+    
+    st.code("""
+required_qty = (fg_shortage / bom_output_qty) × quantity_per_output × (1 + scrap_rate%)
+total_required = required_qty + existing_mo_demand
+net_gap = available_supply - total_required
+    """, language="text")
+    
+    st.markdown("""
+    **Giải thích:**
+    - `fg_shortage`: Số lượng FG cần sản xuất để bù shortage
+    - `bom_output_qty`: Số lượng thành phẩm từ 1 lần sản xuất (theo BOM)
+    - `quantity_per_output`: Số lượng NVL cần cho 1 đơn vị thành phẩm
+    - `scrap_rate`: Tỷ lệ hao hụt trong sản xuất
+    - `existing_mo_demand`: Nhu cầu từ các MO đang pending
+    """)
+    
+    st.info("""
+    💡 **Lưu ý:** Level 2 chỉ tính cho các sản phẩm Manufacturing (có BOM) 
+    và có shortage ở Level 1.
+    """)
+
+
+def _render_status_help():
+    """Render Status thresholds help"""
+    
+    st.markdown("### 📈 GAP Status Classification")
+    st.caption("Phân loại trạng thái dựa trên Coverage Ratio")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**🔴 Shortage Levels**")
+        st.markdown("""
+        | Status | Coverage | Icon |
+        |--------|----------|------|
+        | CRITICAL_SHORTAGE | < 25% | 🚨 |
+        | SEVERE_SHORTAGE | < 50% | 🔴 |
+        | HIGH_SHORTAGE | < 75% | 🟠 |
+        | MODERATE_SHORTAGE | < 90% | 🟡 |
+        | LIGHT_SHORTAGE | < 100% | ⚠️ |
+        """)
+    
+    with col2:
+        st.markdown("**🟢 Optimal & Surplus**")
+        st.markdown("""
+        | Status | Coverage | Icon |
+        |--------|----------|------|
+        | BALANCED | = 100% | ✅ |
+        | LIGHT_SURPLUS | ≤ 125% | 🔵 |
+        | MODERATE_SURPLUS | ≤ 175% | 🟣 |
+        | HIGH_SURPLUS | ≤ 250% | 🟠 |
+        | SEVERE_SURPLUS | > 250% | 🔴 |
+        """)
+    
+    st.markdown("""
+    **Inactive States:**
+    - `NO_DEMAND`: Không có nhu cầu nhưng có supply
+    - `NO_ACTIVITY`: Không có cả supply lẫn demand
+    """)
+
+
+def _render_actions_help():
+    """Render Actions help"""
+    
+    st.markdown("### 📋 Action Recommendations")
+    st.caption("Đề xuất hành động dựa trên kết quả phân tích")
+    
+    st.markdown("""
+    | Action | Điều kiện | Mô tả |
+    |--------|-----------|-------|
+    | 🏭 **CREATE_MO** | Manufacturing + NVL đủ | Tạo lệnh sản xuất |
+    | ⏳ **WAIT_RAW** | Manufacturing + NVL thiếu | Chờ NVL về |
+    | 🔄 **USE_ALTERNATIVE** | Manufacturing + có NVL thay thế | Dùng NVL thay thế |
+    | 🛒 **CREATE_PO_FG** | Trading product thiếu | Tạo PO mua FG trực tiếp |
+    | 📦 **CREATE_PO_RAW** | NVL thiếu (không có alt) | Tạo PO mua NVL |
+    """)
+    
+    st.markdown("""
+    **Product Classification:**
+    - **🏭 Manufacturing**: Sản phẩm có BOM - có thể tự sản xuất
+    - **🛒 Trading**: Sản phẩm không có BOM - cần mua từ nhà cung cấp
+    """)

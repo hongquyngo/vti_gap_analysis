@@ -202,13 +202,103 @@ UI_CONFIG = {
 # FIELD TOOLTIPS
 # =============================================================================
 FIELD_TOOLTIPS = {
-    'net_gap': 'Available Supply - Total Demand',
-    'coverage_ratio': '(Available Supply ÷ Demand) × 100%',
-    'at_risk_value': 'Shortage × Selling Price',
-    'safety_gap': 'Total Supply - Safety Stock',
-    'available_supply': 'MAX(0, Total Supply - Safety Stock)',
-    'can_produce': 'Whether raw materials are sufficient for production',
-    'limiting_materials': 'Materials causing production bottleneck'
+    # FG GAP Fields
+    'total_supply': 'Tổng nguồn cung = ∑ available_quantity (theo từng product)',
+    'total_demand': 'Tổng nhu cầu = ∑ required_quantity (theo từng product)',
+    'safety_stock_qty': 'Mức tồn kho an toàn được thiết lập cho sản phẩm',
+    'safety_gap': 'Total Supply - Safety Stock Qty',
+    'available_supply': 'MAX(0, Total Supply - Safety Stock) - Nguồn cung khả dụng sau khi trừ safety stock',
+    'net_gap': 'Available Supply - Total Demand - Chênh lệch giữa cung và cầu',
+    'true_gap': 'Total Supply - Total Demand - Chênh lệch thực tế không tính safety stock',
+    'coverage_ratio': '(Available Supply ÷ Total Demand) × 100% - Tỷ lệ đáp ứng nhu cầu',
+    'at_risk_value': '|Net GAP| × Selling Price - Giá trị rủi ro khi shortage (USD)',
+    'customer_count': 'Số lượng khách hàng bị ảnh hưởng bởi shortage',
+    
+    # Raw Material Fields
+    'required_qty': '(FG Shortage ÷ BOM Output Qty) × Qty Per Output × (1 + Scrap Rate%)',
+    'existing_mo_demand': 'Nhu cầu từ các MO đang pending chưa xuất kho',
+    'total_required_qty': 'Required Qty + Existing MO Demand',
+    'bom_output_quantity': 'Số lượng output từ 1 lần sản xuất theo BOM',
+    'quantity_per_output': 'Số lượng nguyên liệu cần cho 1 đơn vị output',
+    'scrap_rate': 'Tỷ lệ hao hụt trong quá trình sản xuất (%)',
+    
+    # Classification
+    'can_produce': 'Có đủ nguyên liệu để sản xuất hay không',
+    'limiting_materials': 'Nguyên liệu gây ra bottleneck trong sản xuất',
+    'is_primary': 'Nguyên liệu chính (không phải alternative)',
+    'alternative_priority': 'Thứ tự ưu tiên của nguyên liệu thay thế',
+    
+    # Status
+    'gap_status': 'Trạng thái GAP dựa trên coverage ratio',
+    'gap_group': 'Nhóm trạng thái: SHORTAGE / OPTIMAL / SURPLUS / INACTIVE'
+}
+
+# =============================================================================
+# FORMULA HELP - Chi tiết công thức tính toán
+# =============================================================================
+FORMULA_HELP = {
+    'level_1': {
+        'title': '📊 Level 1: FG GAP (Finished Goods)',
+        'description': 'Phân tích chênh lệch cung-cầu sản phẩm thành phẩm',
+        'formulas': [
+            ('total_supply', '∑ available_quantity', 'Tổng nguồn cung theo từng product'),
+            ('total_demand', '∑ required_quantity', 'Tổng nhu cầu theo từng product'),
+            ('safety_gap', 'total_supply - safety_stock_qty', 'Nguồn cung sau khi trừ tồn kho an toàn'),
+            ('available_supply', 'MAX(0, safety_gap)', 'Nguồn cung khả dụng (không âm)'),
+            ('net_gap', 'available_supply - total_demand', 'Chênh lệch cung-cầu'),
+            ('coverage_ratio', 'available_supply / total_demand', 'Tỷ lệ đáp ứng (%)'),
+            ('at_risk_value', '|net_gap| × selling_price', 'Giá trị rủi ro nếu shortage (USD)')
+        ]
+    },
+    'level_2': {
+        'title': '🧪 Level 2: Raw Material GAP',
+        'description': 'Phân tích nguyên vật liệu cho các sản phẩm Manufacturing có shortage',
+        'formulas': [
+            ('required_qty', '(fg_shortage / bom_output_qty) × qty_per_output × (1 + scrap_rate%)', 
+             'Số lượng NVL cần để bù shortage FG'),
+            ('total_required', 'required_qty + existing_mo_demand', 
+             'Tổng nhu cầu bao gồm MO đang pending'),
+            ('net_gap', 'available_supply - total_required', 
+             'Chênh lệch cung-cầu NVL')
+        ]
+    },
+    'classification': {
+        'title': '🏭 Product Classification',
+        'description': 'Phân loại sản phẩm dựa trên BOM',
+        'items': [
+            ('Manufacturing', 'Sản phẩm có BOM - có thể sản xuất'),
+            ('Trading', 'Sản phẩm không có BOM - cần mua trực tiếp')
+        ]
+    },
+    'status_thresholds': {
+        'title': '📈 GAP Status Thresholds',
+        'description': 'Ngưỡng phân loại trạng thái dựa trên Coverage Ratio',
+        'shortage': [
+            ('CRITICAL_SHORTAGE', '< 25%', '🚨'),
+            ('SEVERE_SHORTAGE', '< 50%', '🔴'),
+            ('HIGH_SHORTAGE', '< 75%', '🟠'),
+            ('MODERATE_SHORTAGE', '< 90%', '🟡'),
+            ('LIGHT_SHORTAGE', '< 100%', '⚠️')
+        ],
+        'surplus': [
+            ('BALANCED', '= 100%', '✅'),
+            ('LIGHT_SURPLUS', '≤ 125%', '🔵'),
+            ('MODERATE_SURPLUS', '≤ 175%', '🟣'),
+            ('HIGH_SURPLUS', '> 175%', '🟠'),
+            ('SEVERE_SURPLUS', '> 250%', '🔴')
+        ]
+    },
+    'actions': {
+        'title': '📋 Action Recommendations',
+        'description': 'Đề xuất hành động dựa trên kết quả phân tích',
+        'items': [
+            ('CREATE_MO', 'Manufacturing + NVL đủ', '🏭 Tạo lệnh sản xuất'),
+            ('WAIT_RAW', 'Manufacturing + NVL thiếu', '⏳ Chờ NVL'),
+            ('USE_ALTERNATIVE', 'Manufacturing + có NVL thay thế', '🔄 Dùng NVL thay thế'),
+            ('CREATE_PO_FG', 'Trading product thiếu', '🛒 Tạo PO mua FG'),
+            ('CREATE_PO_RAW', 'NVL thiếu (không có alternative)', '📦 Tạo PO mua NVL')
+        ]
+    }
 }
 
 # =============================================================================

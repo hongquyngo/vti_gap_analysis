@@ -28,6 +28,7 @@ from .constants import (
     RAW_MATERIAL_STATUS,
     UI_CONFIG,
     FIELD_TOOLTIPS,
+    FORMULA_HELP,
     EXPORT_CONFIG
 )
 
@@ -67,7 +68,10 @@ from .components import (
     render_trading_table,
     render_raw_material_table,
     render_action_table,
-    render_pagination
+    render_pagination,
+    render_help_dialog,
+    render_formula_help_section,
+    render_field_tooltip
 )
 
 from .charts import (
@@ -105,6 +109,7 @@ __all__ = [
     'RAW_MATERIAL_STATUS',
     'UI_CONFIG',
     'FIELD_TOOLTIPS',
+    'FORMULA_HELP',
     'EXPORT_CONFIG',
     
     # State
@@ -139,6 +144,9 @@ __all__ = [
     'render_raw_material_table',
     'render_action_table',
     'render_pagination',
+    'render_help_dialog',
+    'render_formula_help_section',
+    'render_field_tooltip',
     
     # Charts
     'SupplyChainCharts',

@@ -51,6 +51,7 @@ from utils.supply_chain_gap import (
     render_raw_material_table,
     render_action_table,
     render_pagination,
+    render_help_dialog,
     UI_CONFIG
 )
 
@@ -172,6 +173,9 @@ def main():
     # Page header
     st.title("🔬 Supply Chain GAP Analysis")
     st.markdown("Full Multi-Level Analysis: FG + Raw Materials")
+    
+    # Help dialog - accessible from main area
+    render_help_dialog()
     
     # Sidebar
     with st.sidebar:
