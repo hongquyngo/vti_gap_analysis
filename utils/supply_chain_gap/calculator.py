@@ -3,6 +3,13 @@
 """
 Calculator for Supply Chain GAP Analysis
 Performs full multi-level GAP calculation: FG + Raw Materials
+
+VERSION: 1.1.0
+CHANGELOG:
+- Fixed At Risk Value calculation: Use total_value_usd instead of selling_unit_price
+- Fixed is_primary comparison: Use 1/0 instead of True/False for SQL compatibility
+- Added avg_unit_price_usd calculation for proper USD pricing
+- Improved error handling and null checks
 """
 
 import pandas as pd
@@ -207,22 +214,47 @@ class SupplyChainGAPCalculator:
                     supply_agg[f'supply_{source.lower()}'] = supply_agg['product_id'].map(source_sum).fillna(0)
         
         # Aggregate demand by product
+        # FIXED: Use total_value_usd instead of selling_unit_price for USD calculation
         if demand_df.empty:
             demand_agg = pd.DataFrame(columns=['product_id', 'total_demand'])
         else:
-            demand_agg = demand_df.groupby('product_id').agg({
+            # Build aggregation dict dynamically based on available columns
+            agg_dict = {
                 'required_quantity': 'sum',
                 'product_name': 'first',
                 'pt_code': 'first',
                 'brand': 'first',
                 'standard_uom': 'first',
-                'selling_unit_price': 'mean',
                 'customer': lambda x: x.nunique()
-            }).reset_index()
+            }
+            
+            # Add total_value_usd for proper USD calculation
+            if 'total_value_usd' in demand_df.columns:
+                agg_dict['total_value_usd'] = 'sum'
+            
+            # Keep selling_unit_price for reference (original currency)
+            if 'selling_unit_price' in demand_df.columns:
+                agg_dict['selling_unit_price'] = 'mean'
+            
+            demand_agg = demand_df.groupby('product_id').agg(agg_dict).reset_index()
+            
             demand_agg.rename(columns={
                 'required_quantity': 'total_demand',
                 'customer': 'customer_count'
             }, inplace=True)
+            
+            # FIXED: Calculate avg_unit_price_usd from total_value_usd / total_demand
+            # This ensures we use USD values, not original currency (VND/EUR/etc.)
+            if 'total_value_usd' in demand_agg.columns:
+                demand_agg['avg_unit_price_usd'] = np.where(
+                    demand_agg['total_demand'] > 0,
+                    demand_agg['total_value_usd'] / demand_agg['total_demand'],
+                    0
+                )
+            else:
+                # Fallback: if no total_value_usd, set to 0 (at_risk_value will be 0)
+                demand_agg['avg_unit_price_usd'] = 0
+                logger.warning("total_value_usd not found in demand data - at_risk_value will be 0")
             
             # Add demand by source
             if 'demand_source' in demand_df.columns:
@@ -253,6 +285,7 @@ class SupplyChainGAPCalculator:
         # Fill NaN
         gap_df['total_supply'] = gap_df['total_supply'].fillna(0) if 'total_supply' in gap_df.columns else 0
         gap_df['total_demand'] = gap_df['total_demand'].fillna(0) if 'total_demand' in gap_df.columns else 0
+        gap_df['avg_unit_price_usd'] = gap_df['avg_unit_price_usd'].fillna(0) if 'avg_unit_price_usd' in gap_df.columns else 0
         
         # Add safety stock
         if include_safety and safety_stock_df is not None and not safety_stock_df.empty:
@@ -283,11 +316,12 @@ class SupplyChainGAPCalculator:
         gap_df['gap_group'] = gap_df['gap_status'].apply(self._get_gap_group)
         gap_df['priority'] = gap_df['gap_status'].apply(lambda x: STATUS_CONFIG.get(x, {}).get('priority', 99))
         
-        # At risk value
-        selling_price = gap_df['selling_unit_price'].fillna(0) if 'selling_unit_price' in gap_df.columns else 0
+        # FIXED: At risk value - Use avg_unit_price_usd (already in USD)
+        # OLD (WRONG): selling_price = gap_df['selling_unit_price'].fillna(0) - This is original currency (VND)!
+        # NEW (CORRECT): Use avg_unit_price_usd calculated from total_value_usd / total_demand
         gap_df['at_risk_value'] = np.where(
             gap_df['net_gap'] < 0,
-            abs(gap_df['net_gap']) * selling_price,
+            abs(gap_df['net_gap']) * gap_df['avg_unit_price_usd'],
             0
         )
         
@@ -463,13 +497,23 @@ class SupplyChainGAPCalculator:
         raw_demand.rename(columns={id_col: 'fg_product_count'}, inplace=True)
         
         # Add existing MO demand
+        # Note: manufacturing_raw_demand_view returns 'pending_material_qty', 
+        # data_loader renames it to 'pending_qty'
         if existing_mo_demand_df is not None and not existing_mo_demand_df.empty:
-            mo_demand = existing_mo_demand_df.groupby('material_id')['pending_qty'].sum().reset_index()
-            mo_demand.rename(columns={'pending_qty': 'existing_mo_demand'}, inplace=True)
+            # Check for column name variants
+            pending_col = 'pending_qty' if 'pending_qty' in existing_mo_demand_df.columns else 'pending_material_qty'
             
-            raw_demand = raw_demand.merge(mo_demand, on='material_id', how='left')
-            raw_demand['existing_mo_demand'] = raw_demand['existing_mo_demand'].fillna(0) if 'existing_mo_demand' in raw_demand.columns else 0
-            raw_demand['total_required_qty'] = raw_demand['required_qty'] + raw_demand['existing_mo_demand']
+            if pending_col in existing_mo_demand_df.columns:
+                mo_demand = existing_mo_demand_df.groupby('material_id')[pending_col].sum().reset_index()
+                mo_demand.rename(columns={pending_col: 'existing_mo_demand'}, inplace=True)
+                
+                raw_demand = raw_demand.merge(mo_demand, on='material_id', how='left')
+                raw_demand['existing_mo_demand'] = raw_demand['existing_mo_demand'].fillna(0)
+                raw_demand['total_required_qty'] = raw_demand['required_qty'] + raw_demand['existing_mo_demand']
+            else:
+                logger.warning(f"pending_qty column not found in existing_mo_demand_df. Available: {existing_mo_demand_df.columns.tolist()}")
+                raw_demand['existing_mo_demand'] = 0
+                raw_demand['total_required_qty'] = raw_demand['required_qty']
         else:
             raw_demand['existing_mo_demand'] = 0
             raw_demand['total_required_qty'] = raw_demand['required_qty']
@@ -554,7 +598,10 @@ class SupplyChainGAPCalculator:
         alt_analysis = pd.DataFrame()
         if include_alternatives and 'is_primary' in raw_gap.columns:
             alt_analysis = self._analyze_alternatives(raw_gap)
-            metrics['alternative_available'] = len(alt_analysis[alt_analysis.get('can_cover_shortage', False) == True]) if not alt_analysis.empty else 0
+            if not alt_analysis.empty and 'can_cover_shortage' in alt_analysis.columns:
+                metrics['alternative_available'] = len(alt_analysis[alt_analysis['can_cover_shortage'] == True])
+            else:
+                metrics['alternative_available'] = 0
         
         return raw_gap, metrics, alt_analysis
     
@@ -564,9 +611,10 @@ class SupplyChainGAPCalculator:
         if raw_gap_df.empty or 'is_primary' not in raw_gap_df.columns:
             return pd.DataFrame()
         
-        # Get primary materials with shortage
+        # FIXED: Use 1/0 comparison instead of True/False for SQL compatibility
+        # SQL returns is_primary as 1 or 0, not Python True/False
         primary_shortage = raw_gap_df[
-            (raw_gap_df['is_primary'] == True) & 
+            (raw_gap_df['is_primary'].isin([1, True])) & 
             (raw_gap_df['net_gap'] < 0)
         ]
         
@@ -574,7 +622,7 @@ class SupplyChainGAPCalculator:
             return pd.DataFrame()
         
         # Get alternative materials
-        alternatives = raw_gap_df[raw_gap_df['is_primary'] == False].copy()
+        alternatives = raw_gap_df[raw_gap_df['is_primary'].isin([0, False])].copy()
         
         if alternatives.empty:
             return pd.DataFrame()
@@ -668,12 +716,16 @@ class SupplyChainGAPCalculator:
             has_alternative = False
             if not result.alternative_analysis_df.empty:
                 mat_id = row.get('material_id')
-                alts = result.alternative_analysis_df[
-                    result.alternative_analysis_df.get('primary_material_id') == mat_id
-                ]
-                has_alternative = not alts.empty and alts.get('can_cover_shortage', False).any()
+                if 'primary_material_id' in result.alternative_analysis_df.columns:
+                    alts = result.alternative_analysis_df[
+                        result.alternative_analysis_df['primary_material_id'] == mat_id
+                    ]
+                    if not alts.empty and 'can_cover_shortage' in alts.columns:
+                        has_alternative = alts['can_cover_shortage'].any()
             
-            if not has_alternative and row.get('is_primary', True):
+            # FIXED: Use 1/0 comparison for is_primary
+            is_primary = row.get('is_primary', 1)
+            if not has_alternative and is_primary in [1, True]:
                 po_raw_suggestions.append(ActionRecommendation(
                     action_type='CREATE_PO_RAW',
                     product_id=row.get('material_id', 0),
