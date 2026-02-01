@@ -211,7 +211,7 @@ FIELD_TOOLTIPS = {
     'net_gap': 'Available Supply - Total Demand - Chênh lệch giữa cung và cầu',
     'true_gap': 'Total Supply - Total Demand - Chênh lệch thực tế không tính safety stock',
     'coverage_ratio': '(Available Supply ÷ Total Demand) × 100% - Tỷ lệ đáp ứng nhu cầu',
-    'at_risk_value': '|Net GAP| × Selling Price - Giá trị rủi ro khi shortage (USD)',
+    'at_risk_value': '|Net GAP| × avg_unit_price_usd - Giá trị rủi ro khi shortage (USD)',
     'customer_count': 'Số lượng khách hàng bị ảnh hưởng bởi shortage',
     
     # Raw Material Fields
@@ -247,7 +247,7 @@ FORMULA_HELP = {
             ('available_supply', 'MAX(0, safety_gap)', 'Nguồn cung khả dụng (không âm)'),
             ('net_gap', 'available_supply - total_demand', 'Chênh lệch cung-cầu'),
             ('coverage_ratio', 'available_supply / total_demand', 'Tỷ lệ đáp ứng (%)'),
-            ('at_risk_value', '|net_gap| × selling_price', 'Giá trị rủi ro nếu shortage (USD)')
+            ('at_risk_value', '|net_gap| × avg_unit_price_usd', 'Giá trị rủi ro nếu shortage (USD)')
         ]
     },
     'level_2': {

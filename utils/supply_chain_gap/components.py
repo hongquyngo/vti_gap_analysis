@@ -311,7 +311,8 @@ def render_raw_material_table(result: SupplyChainGAPResult, items_per_page: int 
         show_shortage_only = st.checkbox("Shortage only", value=False, key="raw_shortage_only")
     
     if show_primary_only and 'is_primary' in raw_df.columns:
-        raw_df = raw_df[raw_df['is_primary'] == True]
+        # Handle both SQL (1/0) and Python (True/False) values
+        raw_df = raw_df[raw_df['is_primary'].isin([1, True])]
     
     if show_shortage_only and 'net_gap' in raw_df.columns:
         raw_df = raw_df[raw_df['net_gap'] < 0]
@@ -533,7 +534,7 @@ safety_gap = total_supply - safety_stock_qty
 available_supply = MAX(0, safety_gap)
 net_gap = available_supply - total_demand
 coverage_ratio = available_supply / total_demand
-at_risk_value = |net_gap| × selling_price (nếu shortage)
+at_risk_value = |net_gap| × avg_unit_price_usd (nếu shortage)
     """, language="text")
     
     st.markdown("""
@@ -544,7 +545,8 @@ at_risk_value = |net_gap| × selling_price (nếu shortage)
     - `available_supply`: Nguồn cung khả dụng (không thể âm)
     - `net_gap`: Dương = Surplus, Âm = Shortage
     - `coverage_ratio`: Tỷ lệ đáp ứng nhu cầu (%)
-    - `at_risk_value`: Giá trị rủi ro nếu không đáp ứng được nhu cầu
+    - `avg_unit_price_usd`: Giá bán trung bình (USD) = total_value_usd / total_demand
+    - `at_risk_value`: Giá trị rủi ro nếu không đáp ứng được nhu cầu (USD)
     """)
 
 

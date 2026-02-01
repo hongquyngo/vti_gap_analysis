@@ -146,7 +146,8 @@ class SupplyChainGAPCalculator:
                     raw_demand_df=raw_demand_df,
                     raw_supply_df=raw_supply_df,
                     raw_safety_stock_df=raw_safety_stock_df if include_raw_safety else None,
-                    include_alternatives=include_alternatives
+                    include_alternatives=include_alternatives,
+                    selected_supply_sources=selected_supply_sources
                 )
                 
                 result.raw_supply_df = raw_supply_df
@@ -525,27 +526,52 @@ class SupplyChainGAPCalculator:
         raw_demand_df: pd.DataFrame,
         raw_supply_df: pd.DataFrame,
         raw_safety_stock_df: Optional[pd.DataFrame],
-        include_alternatives: bool
+        include_alternatives: bool,
+        selected_supply_sources: Optional[List[str]] = None
     ) -> Tuple[pd.DataFrame, Dict[str, Any], pd.DataFrame]:
         """Calculate raw material GAP"""
         
         if raw_demand_df.empty:
             return pd.DataFrame(), {}, pd.DataFrame()
         
+        # Map supply source to column names in raw_material_supply_summary_view
+        SOURCE_TO_COLUMN = {
+            'INVENTORY': 'inventory_qty',
+            'CAN_PENDING': 'can_pending_qty',
+            'WAREHOUSE_TRANSFER': 'warehouse_transfer_qty',
+            'PURCHASE_ORDER': 'purchase_order_qty'
+        }
+        
         # Aggregate supply by material
         # Note: raw_supply_df comes from raw_material_supply_summary_view which already has total_supply
         if raw_supply_df.empty:
             supply_agg = pd.DataFrame(columns=['material_id', 'total_supply'])
         else:
-            # Check which column to use for aggregation
-            if 'total_supply' in raw_supply_df.columns:
-                # Already aggregated (from summary view)
-                supply_agg = raw_supply_df[['material_id', 'total_supply']].copy()
-                # Group in case of duplicates
+            # FIXED: Recalculate total_supply based on selected supply sources
+            supply_agg = raw_supply_df.copy()
+            
+            if selected_supply_sources:
+                # Get columns for selected sources
+                selected_cols = [SOURCE_TO_COLUMN[s] for s in selected_supply_sources 
+                               if s in SOURCE_TO_COLUMN]
+                
+                if selected_cols:
+                    # Ensure columns exist (fill with 0 if missing)
+                    for col in selected_cols:
+                        if col not in supply_agg.columns:
+                            supply_agg[col] = 0
+                    
+                    # Recalculate total_supply from selected sources only
+                    supply_agg['total_supply'] = supply_agg[selected_cols].fillna(0).sum(axis=1)
+                    logger.info(f"Raw material supply recalculated with sources: {selected_supply_sources}")
+            
+            # If no selected sources or total_supply already exists, use it
+            if 'total_supply' in supply_agg.columns:
+                # Group by material_id in case of duplicates
                 supply_agg = supply_agg.groupby('material_id')['total_supply'].sum().reset_index()
-            elif 'available_quantity' in raw_supply_df.columns:
+            elif 'available_quantity' in supply_agg.columns:
                 # Detail view - need to aggregate
-                supply_agg = raw_supply_df.groupby('material_id').agg({
+                supply_agg = supply_agg.groupby('material_id').agg({
                     'available_quantity': 'sum'
                 }).reset_index()
                 supply_agg.rename(columns={'available_quantity': 'total_supply'}, inplace=True)
