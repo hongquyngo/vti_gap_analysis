@@ -860,10 +860,11 @@ def render_raw_material_table(
     else:
         page_df['coverage_pct'] = 0
     
-    display_cols = ['material_pt_code', 'material_name', 'material_brand', 'material_uom', 'material_type']
+    display_cols = ['material_pt_code', 'material_name', 'material_package_size', 'material_brand', 'material_uom', 'material_type']
     col_config = {
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
         'material_name': st.column_config.TextColumn('Part Number', width='medium'),
+        'material_package_size': st.column_config.TextColumn('Pkg Size', width='small'),
         'material_brand': st.column_config.TextColumn('Brand', width='small'),
         'material_uom': st.column_config.TextColumn('UOM', width='small'),
         'material_type': st.column_config.TextColumn('Type', width='small'),
@@ -916,7 +917,7 @@ def render_semi_finished_table(
         if col in page_df.columns:
             page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0).round(0)
     
-    display_cols = ['material_pt_code', 'material_name', 'material_brand', 'material_uom', 'bom_level',
+    display_cols = ['material_pt_code', 'material_name', 'material_package_size', 'material_brand', 'material_uom', 'bom_level',
                     'required_qty', 'total_supply', 'net_gap']
     available = [c for c in display_cols if c in page_df.columns]
     
@@ -934,6 +935,7 @@ def render_semi_finished_table(
         column_config={
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
             'material_name': st.column_config.TextColumn('Part Number', width='medium'),
+            'material_package_size': st.column_config.TextColumn('Pkg Size', width='small'),
             'material_brand': st.column_config.TextColumn('Brand', width='small'),
             'material_uom': st.column_config.TextColumn('UOM', width='small'),
             'bom_level': st.column_config.NumberColumn('Level', format="%d", width='small'),
@@ -981,6 +983,8 @@ def render_action_table(
             'action_display': f"{ac.get('icon', '📝')} {ac.get('label', action['action_type'])}",
             'pt_code': action.get('pt_code', ''),
             'product_name': str(action.get('product_name', ''))[:40],
+            'package_size': action.get('package_size', ''),
+            'brand': action.get('brand', ''),
             'quantity': round(float(action.get('quantity', 0)), 0),
             'uom': action.get('uom', ''),
             'priority': int(action.get('priority', 99)),
@@ -1002,6 +1006,8 @@ def render_action_table(
             'action_display': st.column_config.TextColumn('Action', width='medium'),
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Part Number', width='medium'),
+            'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
+            'brand': st.column_config.TextColumn('Brand', width='small'),
             'quantity': st.column_config.NumberColumn('Qty'),
             'uom': st.column_config.TextColumn('UOM', width='small'),
             'priority': st.column_config.NumberColumn('Priority', format="%d"),
@@ -1147,6 +1153,7 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
         mat_data.append({
             'material_pt_code': mat.get('material_pt_code', ''),
             'material_name': str(mat.get('material_name', ''))[:40],
+            'material_package_size': str(mat.get('material_package_size', '')) if pd.notna(mat.get('material_package_size')) else '',
             'material_brand': mat.get('material_brand', '') if pd.notna(mat.get('material_brand')) else '',
             'material_uom': mat.get('material_uom', '') if pd.notna(mat.get('material_uom')) else '',
             'type_label': '🔵 Primary' if is_primary else '🔄 Alt',
@@ -1162,6 +1169,7 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
     st.dataframe(styled, column_config={
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
         'material_name': st.column_config.TextColumn('Part Number', width='medium'),
+        'material_package_size': st.column_config.TextColumn('Pkg Size', width='small'),
         'material_brand': st.column_config.TextColumn('Brand', width='small'),
         'material_uom': st.column_config.TextColumn('UOM', width='small'),
         'type_label': st.column_config.TextColumn('Type', width='small'),

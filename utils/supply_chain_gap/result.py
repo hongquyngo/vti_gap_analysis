@@ -31,6 +31,8 @@ class ActionRecommendation:
     uom: str
     priority: int
     reason: str
+    brand: str = ''
+    package_size: str = ''
     related_materials: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
@@ -39,6 +41,8 @@ class ActionRecommendation:
             'product_id': self.product_id,
             'pt_code': self.pt_code,
             'product_name': self.product_name,
+            'package_size': self.package_size,
+            'brand': self.brand,
             'quantity': self.quantity,
             'uom': self.uom,
             'priority': self.priority,

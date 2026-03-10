@@ -587,6 +587,7 @@ class SupplyChainGAPCalculator:
             'material_pt_code': 'first',
             'material_name': 'first',
             'material_brand': 'first',
+            'material_package_size': 'first',
             'material_uom': 'first',
             'material_type': 'first',
             'is_primary': 'first',
@@ -1062,7 +1063,8 @@ class SupplyChainGAPCalculator:
         }
         optional = {
             'material_pt_code': 'first', 'material_name': 'first',
-            'material_brand': 'first', 'material_uom': 'first',
+            'material_brand': 'first', 'material_package_size': 'first',
+            'material_uom': 'first',
             'material_type': 'first', 'is_primary': 'first',
             'alternative_priority': 'first', 'primary_material_id': 'first'
         }
@@ -1091,7 +1093,8 @@ class SupplyChainGAPCalculator:
         }
         optional = {
             'material_pt_code': 'first', 'material_name': 'first',
-            'material_brand': 'first', 'material_uom': 'first',
+            'material_brand': 'first', 'material_package_size': 'first',
+            'material_uom': 'first',
             'material_type': 'first', 'is_primary': 'first',
             'alternative_priority': 'first', 'primary_material_id': 'first',
             'parent_product_count': 'sum'
@@ -1233,6 +1236,8 @@ class SupplyChainGAPCalculator:
                 uom=row.get('standard_uom', ''),
                 priority=row.get('priority', 99),
                 reason=reason,
+                brand=row.get('brand', ''),
+                package_size=str(row.get('package_size', '')) if pd.notna(row.get('package_size')) else '',
                 related_materials=status.get('limiting_materials', [])
             ))
         
@@ -1247,7 +1252,9 @@ class SupplyChainGAPCalculator:
                 quantity=abs(row.get('net_gap', 0)),
                 uom=row.get('standard_uom', ''),
                 priority=row.get('priority', 99),
-                reason='Trading product - no BOM'
+                reason='Trading product - no BOM',
+                brand=row.get('brand', ''),
+                package_size=str(row.get('package_size', '')) if pd.notna(row.get('package_size')) else ''
             ))
         
         # PO-Raw suggestions for raw material shortage
@@ -1275,7 +1282,9 @@ class SupplyChainGAPCalculator:
                     quantity=abs(row.get('net_gap', 0)),
                     uom=row.get('material_uom', ''),
                     priority=row.get('priority', 99),
-                    reason='Raw material shortage'
+                    reason='Raw material shortage',
+                    brand=row.get('material_brand', '') if pd.notna(row.get('material_brand')) else '',
+                    package_size=str(row.get('material_package_size', '')) if pd.notna(row.get('material_package_size')) else ''
                 ))
         
         # MO suggestions for semi-finished products with shortage
@@ -1289,7 +1298,9 @@ class SupplyChainGAPCalculator:
                 quantity=abs(row.get('net_gap', 0)),
                 uom=row.get('material_uom', ''),
                 priority=row.get('priority', 99),
-                reason=f"Semi-finished shortage at BOM level {row.get('bom_level', '?')}"
+                reason=f"Semi-finished shortage at BOM level {row.get('bom_level', '?')}",
+                brand=row.get('material_brand', '') if pd.notna(row.get('material_brand')) else '',
+                package_size=str(row.get('material_package_size', '')) if pd.notna(row.get('material_package_size')) else ''
             ))
         
         return mo_suggestions, po_fg_suggestions, po_raw_suggestions

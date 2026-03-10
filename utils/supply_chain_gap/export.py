@@ -138,7 +138,7 @@ def _write_fg_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     
     # Select columns
     columns = [
-        'pt_code', 'product_name', 'brand', 'standard_uom',
+        'pt_code', 'product_name', 'package_size', 'brand', 'standard_uom',
         'total_supply', 'supply_mo_expected', 'total_demand', 'safety_stock_qty',
         'available_supply', 'net_gap', 'true_gap',
         'coverage_ratio', 'gap_status', 'at_risk_value', 'customer_count'
@@ -149,8 +149,9 @@ def _write_fg_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     
     # Rename columns
     rename_map = {
-        'pt_code': 'PT Code',
-        'product_name': 'Product Name',
+        'pt_code': 'Code',
+        'product_name': 'Part Number',
+        'package_size': 'Pkg Size',
         'brand': 'Brand',
         'standard_uom': 'UOM',
         'total_supply': 'Total Supply',
@@ -188,9 +189,11 @@ def _write_manufacturing_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPRes
     for _, row in mfg_shortage.iterrows():
         status = all_statuses.get(row['product_id'], result.get_production_status(row['product_id']))
         data.append({
-            'PT Code': row.get('pt_code', ''),
-            'Product Name': row.get('product_name', ''),
+            'Code': row.get('pt_code', ''),
+            'Part Number': row.get('product_name', ''),
+            'Pkg Size': row.get('package_size', '') if pd.notna(row.get('package_size')) else '',
             'Brand': row.get('brand', ''),
+            'UOM': row.get('standard_uom', ''),
             'Net GAP': row.get('net_gap', 0),
             'Can Produce': 'Yes' if status.get('can_produce') else 'No',
             'Status': status.get('status', ''),
@@ -213,16 +216,18 @@ def _write_trading_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
         )
         return
     
-    columns = ['pt_code', 'product_name', 'brand', 'net_gap', 'gap_status', 'at_risk_value']
+    columns = ['pt_code', 'product_name', 'package_size', 'brand', 'standard_uom', 'net_gap', 'gap_status', 'at_risk_value']
     available = [c for c in columns if c in trading_shortage.columns]
     
     export_df = trading_shortage[available].copy()
     export_df['Action'] = 'Create PO'
     
     export_df.rename(columns={
-        'pt_code': 'PT Code',
-        'product_name': 'Product Name',
+        'pt_code': 'Code',
+        'product_name': 'Part Number',
+        'package_size': 'Pkg Size',
         'brand': 'Brand',
+        'standard_uom': 'UOM',
         'net_gap': 'Net GAP',
         'gap_status': 'Status',
         'at_risk_value': 'At Risk Value'
@@ -243,7 +248,7 @@ def _write_semi_finished_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPRes
         return
     
     columns = [
-        'material_pt_code', 'material_name', 'material_brand', 'material_uom',
+        'material_pt_code', 'material_name', 'material_package_size', 'material_brand', 'material_uom',
         'bom_level', 'required_qty', 'total_supply', 'safety_stock_qty',
         'net_gap', 'coverage_ratio', 'gap_status'
     ]
@@ -257,8 +262,9 @@ def _write_semi_finished_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPRes
         )
     
     export_df.rename(columns={
-        'material_pt_code': 'Material Code',
-        'material_name': 'Material Name',
+        'material_pt_code': 'Code',
+        'material_name': 'Part Number',
+        'material_package_size': 'Pkg Size',
         'material_brand': 'Brand',
         'material_uom': 'UOM',
         'bom_level': 'BOM Level',
@@ -285,7 +291,7 @@ def _write_raw_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
         return
     
     columns = [
-        'material_pt_code', 'material_name', 'material_brand', 'material_uom',
+        'material_pt_code', 'material_name', 'material_package_size', 'material_brand', 'material_uom',
         'material_type', 'is_primary', 'bom_level', 'fg_product_count',
         'required_qty', 'existing_mo_demand', 'total_required_qty',
         'total_supply', 'safety_stock_qty', 'net_gap', 'coverage_ratio', 'gap_status'
@@ -299,8 +305,9 @@ def _write_raw_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
         export_df['is_primary'] = export_df['is_primary'].apply(lambda x: 'Yes' if x else 'No')
     
     export_df.rename(columns={
-        'material_pt_code': 'Material Code',
-        'material_name': 'Material Name',
+        'material_pt_code': 'Code',
+        'material_name': 'Part Number',
+        'material_package_size': 'Pkg Size',
         'material_brand': 'Brand',
         'material_uom': 'UOM',
         'material_type': 'Type',
@@ -334,7 +341,7 @@ def _write_actions_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     df = pd.DataFrame(actions)
     
     # Select columns
-    columns = ['action_type', 'category', 'pt_code', 'product_name', 'quantity', 'uom', 'priority', 'reason']
+    columns = ['action_type', 'category', 'pt_code', 'product_name', 'package_size', 'brand', 'quantity', 'uom', 'priority', 'reason']
     available = [c for c in columns if c in df.columns]
     
     export_df = df[available].copy()
@@ -343,7 +350,9 @@ def _write_actions_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
         'action_type': 'Action Type',
         'category': 'Category',
         'pt_code': 'Code',
-        'product_name': 'Name',
+        'product_name': 'Part Number',
+        'package_size': 'Pkg Size',
+        'brand': 'Brand',
         'quantity': 'Quantity',
         'uom': 'UOM',
         'priority': 'Priority',
