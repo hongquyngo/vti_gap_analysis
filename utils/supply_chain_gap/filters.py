@@ -88,10 +88,24 @@ class SupplyChainFilters:
         
         with col5:
             include_existing_mo = st.checkbox(
-                "Existing MO",
+                "Existing MO Demand",
                 value=True,
                 key="scg_existing_mo",
-                help="Include demand from existing manufacturing orders"
+                help="Include raw material demand from existing manufacturing orders"
+            )
+        
+        # Detect MO Expected in supply sources
+        include_mo_expected = 'MO_EXPECTED' in supply_sources
+        
+        # Double-count warning: MO_EXPECTED off + Existing MO on = risk
+        if not include_mo_expected and include_existing_mo:
+            st.warning(
+                "⚠️ **Double-count risk:** MO Expected Output is excluded from FG supply, "
+                "but Existing MO Demand is ON at raw material level. "
+                "This means FG shortage is not reduced by in-flight MOs, so BOM explosion "
+                "generates raw demand that overlaps with the existing MO demand. "
+                "**Recommendation:** Enable MO Expected in Supply Sources, or disable Existing MO Demand.",
+                icon="⚠️"
             )
         
         return {
@@ -106,7 +120,8 @@ class SupplyChainFilters:
             'include_raw_safety': include_raw_safety,
             'exclude_expired': exclude_expired,
             'include_alternatives': include_alternatives,
-            'include_existing_mo': include_existing_mo
+            'include_existing_mo': include_existing_mo,
+            'include_mo_expected': include_mo_expected
         }
     
     def _render_entity_filter(self) -> Optional[str]:

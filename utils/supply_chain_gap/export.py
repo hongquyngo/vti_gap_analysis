@@ -118,6 +118,13 @@ def _write_summary_sheet(
         data.append(['Include FG Safety', 'Yes' if filter_values.get('include_fg_safety') else 'No'])
         data.append(['Include Raw Safety', 'Yes' if filter_values.get('include_raw_safety') else 'No'])
         data.append(['Exclude Expired', 'Yes' if filter_values.get('exclude_expired') else 'No'])
+        data.append(['MO Expected in Supply', 'Yes' if filter_values.get('include_mo_expected') else 'No'])
+        data.append(['Existing MO Demand', 'Yes' if filter_values.get('include_existing_mo') else 'No'])
+        
+        # Double-count warning in export
+        if not filter_values.get('include_mo_expected') and filter_values.get('include_existing_mo'):
+            data.append(['', ''])
+            data.append(['⚠️ WARNING', 'Double-count risk: MO Expected OFF + Existing MO ON'])
     
     df = pd.DataFrame(data, columns=['Metric', 'Value'])
     df.to_excel(writer, sheet_name='Summary', index=False)
@@ -131,7 +138,7 @@ def _write_fg_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     # Select columns
     columns = [
         'pt_code', 'product_name', 'brand', 'standard_uom',
-        'total_supply', 'total_demand', 'safety_stock_qty',
+        'total_supply', 'supply_mo_expected', 'total_demand', 'safety_stock_qty',
         'available_supply', 'net_gap', 'true_gap',
         'coverage_ratio', 'gap_status', 'at_risk_value', 'customer_count'
     ]
@@ -146,6 +153,7 @@ def _write_fg_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
         'brand': 'Brand',
         'standard_uom': 'UOM',
         'total_supply': 'Total Supply',
+        'supply_mo_expected': 'MO Expected',
         'total_demand': 'Total Demand',
         'safety_stock_qty': 'Safety Stock',
         'available_supply': 'Available Supply',

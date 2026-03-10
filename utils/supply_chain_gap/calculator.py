@@ -69,13 +69,28 @@ class SupplyChainGAPCalculator:
         """
         logger.info("Starting Supply Chain GAP calculation")
         
+        # Detect MO Expected in supply sources
+        include_mo_expected = (
+            selected_supply_sources is not None and 'MO_EXPECTED' in selected_supply_sources
+        )
+        
+        # Double-count detection: MO output NOT in FG supply but MO raw demand IS included
+        if not include_mo_expected and include_existing_mo:
+            logger.warning(
+                "⚠️ DOUBLE-COUNT RISK: MO_EXPECTED not in supply_sources but "
+                "include_existing_mo=True. FG shortage is not reduced by in-flight MOs, "
+                "so BOM explosion raw demand will overlap with existing MO demand."
+            )
+        
         result = SupplyChainGAPResult(
             timestamp=datetime.now(),
             filters_used={
                 'supply_sources': selected_supply_sources,
                 'demand_sources': selected_demand_sources,
                 'include_fg_safety': include_fg_safety,
-                'include_raw_safety': include_raw_safety
+                'include_raw_safety': include_raw_safety,
+                'include_mo_expected': include_mo_expected,
+                'include_existing_mo': include_existing_mo
             }
         )
         
@@ -214,7 +229,7 @@ class SupplyChainGAPCalculator:
             
             # Add supply by source
             if 'supply_source' in supply_df.columns:
-                for source in ['INVENTORY', 'CAN_PENDING', 'WAREHOUSE_TRANSFER', 'PURCHASE_ORDER']:
+                for source in ['INVENTORY', 'CAN_PENDING', 'WAREHOUSE_TRANSFER', 'PURCHASE_ORDER', 'MO_EXPECTED']:
                     source_sum = supply_df[supply_df['supply_source'] == source].groupby('product_id')['available_quantity'].sum()
                     supply_agg[f'supply_{source.lower()}'] = supply_agg['product_id'].map(source_sum).fillna(0)
         

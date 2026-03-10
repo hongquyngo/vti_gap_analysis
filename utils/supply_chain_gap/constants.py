@@ -115,7 +115,8 @@ SUPPLY_SOURCES = {
     'INVENTORY': {'label': '📦 Inventory', 'icon': '📦', 'priority': 1},
     'CAN_PENDING': {'label': '📋 CAN Pending', 'icon': '📋', 'priority': 2},
     'WAREHOUSE_TRANSFER': {'label': '🚛 Transfer', 'icon': '🚛', 'priority': 3},
-    'PURCHASE_ORDER': {'label': '📝 Purchase Order', 'icon': '📝', 'priority': 4}
+    'PURCHASE_ORDER': {'label': '📝 Purchase Order', 'icon': '📝', 'priority': 4},
+    'MO_EXPECTED': {'label': '🏭 MO Expected', 'icon': '🏭', 'priority': 5}
 }
 
 DEMAND_SOURCES = {
@@ -274,7 +275,11 @@ FIELD_TOOLTIPS = {
     
     # Status
     'gap_status': 'Trạng thái GAP dựa trên coverage ratio',
-    'gap_group': 'Nhóm trạng thái: SHORTAGE / OPTIMAL / SURPLUS / INACTIVE'
+    'gap_group': 'Nhóm trạng thái: SHORTAGE / OPTIMAL / SURPLUS / INACTIVE',
+    
+    # MO Expected
+    'mo_expected': 'Sản lượng dự kiến từ MO CONFIRMED/IN_PROGRESS chưa hoàn thành (planned_qty - produced_qty)',
+    'supply_mo_expected': 'Nguồn cung từ MO đang sản xuất — bật/tắt để bao gồm hoặc loại trừ'
 }
 
 # =============================================================================
@@ -285,7 +290,8 @@ FORMULA_HELP = {
         'title': '📊 Level 1: FG GAP (Finished Goods)',
         'description': 'Phân tích chênh lệch cung-cầu sản phẩm thành phẩm',
         'formulas': [
-            ('total_supply', '∑ available_quantity', 'Tổng nguồn cung theo từng product'),
+            ('total_supply', '∑ available_quantity (incl. MO Expected)', 
+             'Tổng nguồn cung = Inventory + CAN + Transfer + PO + MO Expected Output'),
             ('total_demand', '∑ required_quantity', 'Tổng nhu cầu theo từng product'),
             ('safety_gap', 'total_supply - safety_stock_qty', 'Nguồn cung sau khi trừ tồn kho an toàn'),
             ('available_supply', 'MAX(0, safety_gap)', 'Nguồn cung khả dụng (không âm)'),
@@ -296,10 +302,14 @@ FORMULA_HELP = {
     },
     'level_2': {
         'title': '🧪 Level 2: Raw Material GAP',
-        'description': 'Phân tích nguyên vật liệu cho các sản phẩm Manufacturing có shortage',
+        'description': (
+            'Phân tích nguyên vật liệu cho các sản phẩm Manufacturing có shortage. '
+            'Lưu ý: Khi bật MO Expected ở FG supply, FG shortage giảm đi → raw demand '
+            'chỉ tính cho phần chưa có MO cover, tránh double-count.'
+        ),
         'formulas': [
             ('required_qty', '(fg_shortage / bom_output_qty) × qty_per_output × (1 + scrap_rate%)', 
-             'Số lượng NVL cần để bù shortage FG'),
+             'Số lượng NVL cần để bù shortage FG (chỉ phần chưa có MO)'),
             ('total_required', 'required_qty + existing_mo_demand', 
              'Tổng nhu cầu bao gồm MO đang pending'),
             ('net_gap', 'available_supply - total_required', 

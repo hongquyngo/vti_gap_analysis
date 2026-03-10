@@ -907,7 +907,7 @@ def render_product_drilldown(result: SupplyChainGAPResult, filtered_df: pd.DataF
     with col1:
         st.markdown("**📦 Supply Breakdown**")
         supply_items = []
-        for src_key in ['supply_inventory', 'supply_can_pending', 'supply_warehouse_transfer', 'supply_purchase_order']:
+        for src_key in ['supply_inventory', 'supply_can_pending', 'supply_warehouse_transfer', 'supply_purchase_order', 'supply_mo_expected']:
             val = product.get(src_key, None)
             if pd.notna(val) and val > 0:
                 # Map column name back to source label
@@ -915,7 +915,8 @@ def render_product_drilldown(result: SupplyChainGAPResult, filtered_df: pd.DataF
                     'supply_inventory': 'INVENTORY',
                     'supply_can_pending': 'CAN_PENDING',
                     'supply_warehouse_transfer': 'WAREHOUSE_TRANSFER',
-                    'supply_purchase_order': 'PURCHASE_ORDER'
+                    'supply_purchase_order': 'PURCHASE_ORDER',
+                    'supply_mo_expected': 'MO_EXPECTED'
                 }
                 src_label = SUPPLY_SOURCES.get(source_map.get(src_key, ''), {}).get('label', src_key)
                 supply_items.append(f"- {src_label}: **{val:,.0f}**")

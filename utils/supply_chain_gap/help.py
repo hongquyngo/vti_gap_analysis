@@ -960,6 +960,38 @@ def _render_faq():
         3. Nếu NVL cũng thiếu → sẽ có thêm **CREATE_PO_RAW**
         """)
     
+    with st.expander("**Q8d: 'MO Expected' trong Supply Sources là gì? Tại sao quan trọng?**"):
+        st.markdown("""
+        **MO Expected** là sản lượng dự kiến từ các Manufacturing Order (MO) đang ở trạng thái 
+        CONFIRMED hoặc IN_PROGRESS nhưng chưa hoàn thành.
+        
+        **Công thức:** `pending_output = planned_qty - produced_qty`
+        
+        **Tại sao cần bật?**
+        
+        Khi có MO đang sản xuất để fulfill OC/Forecast, nếu KHÔNG tính MO Expected vào FG supply:
+        
+        1. FG shortage bị tính **full** (không trừ phần MO đang cover)
+        2. BOM explosion chạy trên full shortage → raw demand bị **thổi phồng**
+        3. Existing MO Demand ở raw level lại cộng thêm → **double-count!**
+        
+        **Ví dụ:**
+        - OC Demand = 100 PCS, Inventory = 20 PCS, MO đang sản xuất = 80 PCS
+        - ❌ **MO Expected OFF:** Shortage = 80 → BOM explosion cho 80 → raw demand = 80 + existing MO raw = **160 (double!)**
+        - ✅ **MO Expected ON:** Shortage = 0 (20 + 80 ≥ 100) → Không cần BOM explosion → raw demand chỉ = existing MO = **80 (đúng!)**
+        
+        **Bảng trạng thái an toàn:**
+        
+        | MO Expected | Existing MO | Kết quả |
+        |---|---|---|
+        | ✅ ON | ✅ ON | ✅ **Chuẩn** — FG supply có MO, raw có commitment |
+        | ❌ OFF | ❌ OFF | ✅ **Worst-case** — chỉ tính inventory thực |
+        | ✅ ON | ❌ OFF | ⚠️ OK nhưng raw thiếu commitment |
+        | ❌ OFF | ✅ ON | ❌ **Double-count!** Hệ thống sẽ cảnh báo |
+        
+        **Khuyến nghị:** Luôn bật cả hai (MO Expected + Existing MO) — đây là cấu hình mặc định.
+        """)
+    
     # -------------------------------------------------------------------------
     # Nhóm 3: Bộ lọc & Tùy chọn
     # -------------------------------------------------------------------------
@@ -973,10 +1005,14 @@ def _render_faq():
         
         | Tình huống | Nguồn nên bỏ | Lý do |
         |-----------|-------------|-------|
-        | Chỉ muốn xem tồn kho thực vs đơn hàng | Bỏ CAN, Transfer, PO / Bỏ Forecast | Đánh giá khả năng giao hàng ngay |
+        | Chỉ muốn xem tồn kho thực vs đơn hàng | Bỏ CAN, Transfer, PO, MO Expected / Bỏ Forecast | Đánh giá khả năng giao hàng ngay |
         | PO chưa chắc chắn (NCC chưa xác nhận) | Bỏ Purchase Order | Tránh tính nguồn cung không chắc chắn |
         | Forecast chưa chính xác | Bỏ Forecast | Chỉ tính nhu cầu đã confirm |
         | Muốn worst-case scenario | Chỉ giữ Inventory / Chỉ giữ OC_PENDING | Đánh giá tình huống xấu nhất |
+        | MO chưa chắc hoàn thành | Bỏ MO Expected | Tránh tính sản lượng chưa chắc chắn |
+        
+        ⚠️ **Lưu ý:** Nếu bỏ MO Expected, nên tắt luôn "Existing MO Demand" ở phần Options 
+        để tránh double-count (xem Q8d).
         """)
     
     with st.expander("**Q10: 'Exclude Expired' có ảnh hưởng nhiều không?**"):
