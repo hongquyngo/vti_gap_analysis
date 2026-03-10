@@ -66,7 +66,7 @@ THRESHOLDS = {
         'light': 1.25,
         'moderate': 1.75,
         'high': 2.50,
-        'severe': 2.50
+        # Note: SEVERE_SURPLUS = coverage > high threshold (else branch in classifier)
     }
 }
 

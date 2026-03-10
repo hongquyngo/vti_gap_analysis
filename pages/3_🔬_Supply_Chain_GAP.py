@@ -419,20 +419,26 @@ def main():
     col1, col2 = st.columns([1, 3])
     
     with col1:
-        if st.button("📥 Export Excel", type="primary", width='stretch'):
-            try:
-                excel_data = export_to_excel(result, filter_values)
-                filename = get_export_filename()
-                
-                st.download_button(
-                    label="📥 Download",
-                    data=excel_data,
-                    file_name=filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            except Exception as e:
-                logger.error(f"Export failed: {e}")
-                st.error("Export failed")
+        try:
+            # Cache export data by result timestamp to avoid regenerating on every rerun
+            cache_key = f"export_cache_{result.timestamp.isoformat()}"
+            if cache_key not in st.session_state:
+                st.session_state[cache_key] = export_to_excel(result, state.get_filters() or filter_values)
+            
+            excel_data = st.session_state[cache_key]
+            filename = get_export_filename()
+            
+            st.download_button(
+                label="📥 Export Excel",
+                data=excel_data,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            st.error("Export failed")
     
     st.divider()
     st.caption(

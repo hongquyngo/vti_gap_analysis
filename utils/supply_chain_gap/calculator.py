@@ -107,6 +107,14 @@ class SupplyChainGAPCalculator:
         if classification_df is not None and not classification_df.empty:
             logger.info("Classifying products (Manufacturing vs Trading)...")
             
+            # Scope classification to only products present in FG GAP
+            # (prevents inflated counts when classification view returns all entities)
+            if not fg_gap_df.empty and 'product_id' in fg_gap_df.columns:
+                fg_product_ids = fg_gap_df['product_id'].tolist()
+                classification_df = classification_df[
+                    classification_df['product_id'].isin(fg_product_ids)
+                ].copy()
+            
             result.classification_df = classification_df
             result.manufacturing_df = classification_df[classification_df['has_bom'] == 1].copy()
             result.trading_df = classification_df[classification_df['has_bom'] == 0].copy()
@@ -766,9 +774,12 @@ class SupplyChainGAPCalculator:
         
         # MO suggestions for manufacturing products
         mfg_shortage = result.get_manufacturing_shortage()
+        # Pre-compute all statuses at once (also populates cache for UI/export later)
+        all_statuses = result.get_all_production_statuses()
+        
         for _, row in mfg_shortage.iterrows():
             product_id = row['product_id']
-            status = result.get_production_status(product_id)
+            status = all_statuses.get(product_id, result.get_production_status(product_id))
             
             if status.get('can_produce', False):
                 action_type = 'USE_ALTERNATIVE' if status.get('status') == 'USE_ALTERNATIVE' else 'CREATE_MO'

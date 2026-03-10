@@ -317,6 +317,28 @@ class SupplyChainGAPResult:
             return materials_df['material_pt_code'].tolist()
         return []
     
+    def get_all_production_statuses(self) -> Dict[int, Dict[str, Any]]:
+        """
+        Get production status for ALL manufacturing shortage products at once.
+        Caches result to avoid repeated per-row computation.
+        
+        Returns:
+            Dict mapping product_id → production status dict
+        """
+        # Return cached result if available
+        if hasattr(self, '_production_status_cache') and self._production_status_cache:
+            return self._production_status_cache
+        
+        cache = {}
+        mfg_shortage = self.get_manufacturing_shortage()
+        
+        for _, row in mfg_shortage.iterrows():
+            product_id = row['product_id']
+            cache[product_id] = self.get_production_status(product_id)
+        
+        self._production_status_cache = cache
+        return cache
+    
     # =========================================================================
     # ACTION ACCESSORS
     # =========================================================================

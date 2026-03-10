@@ -34,6 +34,23 @@ class SupplyChainDataLoader:
             logger.error(f"Failed to connect to database: {e}")
             raise
     
+    def _ensure_connection(self):
+        """Check connection health and reconnect if needed"""
+        if self._engine is None:
+            self._init_connection()
+            return
+        try:
+            from sqlalchemy import text
+            with self._engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception as e:
+            logger.warning(f"Database connection lost, reconnecting: {e}")
+            try:
+                self._engine.dispose()
+            except Exception:
+                pass
+            self._init_connection()
+    
     # =========================================================================
     # FG SUPPLY DATA
     # =========================================================================
@@ -218,8 +235,9 @@ class SupplyChainDataLoader:
         params = {}
         
         if entity_name:
-            # Note: view may not have entity_name filter
-            pass
+            # Try entity_name filter — view may or may not have this column
+            query += " AND entity_name = %(entity_name)s"
+            params['entity_name'] = entity_name
         
         if product_ids:
             query += " AND product_id IN %(product_ids)s"
@@ -233,6 +251,30 @@ class SupplyChainDataLoader:
             logger.info(f"Loaded {len(df)} product classifications")
             return df
         except Exception as e:
+            # Retry without entity_name filter (view may not have this column)
+            if entity_name and 'entity_name' in str(e):
+                logger.warning(f"product_classification_view has no entity_name column, retrying without entity filter")
+                query_no_entity = """
+                SELECT 
+                    product_id, pt_code, product_name, brand, standard_uom,
+                    has_bom, product_type, bom_id, bom_code, bom_type,
+                    bom_output_qty, primary_material_count, alternative_material_count
+                FROM product_classification_view
+                WHERE 1=1
+                """
+                params_no_entity = {}
+                if product_ids:
+                    query_no_entity += " AND product_id IN %(product_ids)s"
+                    params_no_entity['product_ids'] = product_ids
+                try:
+                    df = pd.read_sql(query_no_entity, self._engine, params=params_no_entity)
+                    if 'bom_output_qty' in df.columns:
+                        df.rename(columns={'bom_output_qty': 'bom_output_quantity'}, inplace=True)
+                    logger.info(f"Loaded {len(df)} product classifications (without entity filter)")
+                    return df
+                except Exception as e2:
+                    logger.warning(f"Could not load product classification: {e2}")
+                    return pd.DataFrame()
             logger.warning(f"Could not load product classification (view may not exist): {e}")
             return pd.DataFrame()
     
@@ -631,8 +673,14 @@ class SupplyChainDataLoader:
 _data_loader_instance = None
 
 def get_data_loader() -> SupplyChainDataLoader:
-    """Get singleton data loader instance"""
+    """Get singleton data loader instance with connection health check"""
     global _data_loader_instance
     if _data_loader_instance is None:
         _data_loader_instance = SupplyChainDataLoader()
+    else:
+        try:
+            _data_loader_instance._ensure_connection()
+        except Exception as e:
+            logger.error(f"Failed to reconnect, creating new instance: {e}")
+            _data_loader_instance = SupplyChainDataLoader()
     return _data_loader_instance

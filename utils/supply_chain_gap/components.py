@@ -460,11 +460,14 @@ def render_manufacturing_table(
     
     page_df = mfg_shortage.iloc[start_idx:end_idx]
     
+    # Pre-compute all production statuses (cached after first call)
+    all_statuses = result.get_all_production_statuses()
+    
     # Build display data with numeric types preserved
     display_data = []
     for _, row in page_df.iterrows():
         product_id = row['product_id']
-        status = result.get_production_status(product_id)
+        status = all_statuses.get(product_id, result.get_production_status(product_id))
         
         can_produce = status.get('can_produce', False)
         

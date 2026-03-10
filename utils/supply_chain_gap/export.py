@@ -165,10 +165,12 @@ def _write_manufacturing_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPRes
         )
         return
     
-    # Add production status
+    # Add production status (use batch method for performance)
+    all_statuses = result.get_all_production_statuses()
+    
     data = []
     for _, row in mfg_shortage.iterrows():
-        status = result.get_production_status(row['product_id'])
+        status = all_statuses.get(row['product_id'], result.get_production_status(row['product_id']))
         data.append({
             'PT Code': row.get('pt_code', ''),
             'Product Name': row.get('product_name', ''),
