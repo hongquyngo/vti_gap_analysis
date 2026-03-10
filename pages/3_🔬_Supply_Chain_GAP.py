@@ -252,7 +252,6 @@ def main():
                     st.error(f"❌ Refresh failed: {str(e)}")
         
         # KPI Cards
-        st.subheader("📈 Key Metrics")
         render_kpi_cards(result)
     
     st.divider()
