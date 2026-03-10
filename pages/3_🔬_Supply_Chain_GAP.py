@@ -51,6 +51,8 @@ from utils.supply_chain_gap import (
     render_raw_material_table,
     render_action_table,
     render_pagination,
+    render_product_drilldown,
+    render_data_freshness,
     render_help_tab,
     UI_CONFIG
 )
@@ -228,6 +230,21 @@ def main():
     if not result:
         st.info("Configure filters and click 'Analyze' to begin")
     else:
+        # Data Freshness Indicator + Refresh
+        refresh_clicked = render_data_freshness(state)
+        if refresh_clicked:
+            # Re-run with same filters
+            saved_filters = state.get_filters()
+            if saved_filters:
+                try:
+                    new_result = calculate_gap(data_loader, calculator, saved_filters)
+                    if new_result:
+                        state.set_result(new_result)
+                        st.rerun()
+                except Exception as e:
+                    logger.error(f"Refresh failed: {e}", exc_info=True)
+                    st.error(f"❌ Refresh failed: {str(e)}")
+        
         # KPI Cards
         st.subheader("📈 Key Metrics")
         render_kpi_cards(result)
@@ -244,7 +261,7 @@ def main():
         "📖 Help"
     ])
     
-    # Tab 1: FG Overview
+    # Tab 1: FG Overview + Drill-Down
     with tab1:
         if not result:
             st.info("👆 Click **Analyze** to view Finished Goods GAP")
@@ -285,7 +302,7 @@ def main():
                     ).any(axis=1)
                     filtered_df = filtered_df[mask]
             
-            # Table
+            # FG Table (sortable columns)
             page_info = render_fg_table(filtered_df, items_per_page, state.get_page('fg'))
             
             if page_info:
@@ -293,8 +310,11 @@ def main():
                 if new_page != page_info['page']:
                     state.set_page(new_page, 'fg', page_info['total_pages'])
                     st.rerun()
+            
+            # Drill-Down Panel
+            render_product_drilldown(result, filtered_df)
     
-    # Tab 2: Manufacturing
+    # Tab 2: Manufacturing (with pagination)
     with tab2:
         if not result:
             st.info("👆 Click **Analyze** to view Manufacturing products")
@@ -315,17 +335,27 @@ def main():
                     st.metric("Total Manufacturing", metrics.get('manufacturing_count', 0))
                     st.metric("With Shortage", len(result.get_manufacturing_shortage()))
             
-            render_manufacturing_table(result)
+            page_info = render_manufacturing_table(result, items_per_page=25, current_page=state.get_page('mfg'))
+            if page_info and page_info.get('total_pages', 1) > 1:
+                new_page = render_pagination(page_info['page'], page_info['total_pages'], "mfg")
+                if new_page != page_info['page']:
+                    state.set_page(new_page, 'mfg', page_info['total_pages'])
+                    st.rerun()
     
-    # Tab 3: Trading
+    # Tab 3: Trading (with pagination)
     with tab3:
         if not result:
             st.info("👆 Click **Analyze** to view Trading products")
         else:
             st.subheader("🛒 Trading Products")
-            render_trading_table(result)
+            page_info = render_trading_table(result, items_per_page=25, current_page=state.get_page('trading'))
+            if page_info and page_info.get('total_pages', 1) > 1:
+                new_page = render_pagination(page_info['page'], page_info['total_pages'], "trading")
+                if new_page != page_info['page']:
+                    state.set_page(new_page, 'trading', page_info['total_pages'])
+                    st.rerun()
     
-    # Tab 4: Raw Materials
+    # Tab 4: Raw Materials (with pagination)
     with tab4:
         if not result:
             st.info("👆 Click **Analyze** to view Raw Material GAP")
@@ -344,7 +374,12 @@ def main():
                     st.metric("With Shortage", raw_metrics.get('shortage_count', 0))
                     st.metric("Sufficient", raw_metrics.get('sufficient_count', 0))
                 
-                render_raw_material_table(result)
+                page_info = render_raw_material_table(result, items_per_page=25, current_page=state.get_page('raw'))
+                if page_info and page_info.get('total_pages', 1) > 1:
+                    new_page = render_pagination(page_info['page'], page_info['total_pages'], "raw")
+                    if new_page != page_info['page']:
+                        state.set_page(new_page, 'raw', page_info['total_pages'])
+                        st.rerun()
             else:
                 st.info("No raw material data available")
     

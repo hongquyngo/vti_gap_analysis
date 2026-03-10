@@ -68,7 +68,9 @@ from .components import (
     render_trading_table,
     render_raw_material_table,
     render_action_table,
-    render_pagination
+    render_pagination,
+    render_product_drilldown,
+    render_data_freshness
 )
 
 from .help import (
@@ -148,6 +150,8 @@ __all__ = [
     'render_raw_material_table',
     'render_action_table',
     'render_pagination',
+    'render_product_drilldown',
+    'render_data_freshness',
     'render_help_dialog',
     'render_help_tab',
     'render_formula_help_section',

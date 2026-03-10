@@ -162,3 +162,53 @@ class SupplyChainStateManager:
     def is_dialog_open(self, dialog_name: str) -> bool:
         """Check if dialog is open"""
         return st.session_state.get(f'{self.STATE_KEY}_{dialog_name}_dialog', False)
+    
+    # =========================================================================
+    # DATA FRESHNESS
+    # =========================================================================
+    
+    def get_data_age_seconds(self) -> Optional[int]:
+        """Get age of data in seconds since last calculation"""
+        last = self.get_last_calculated()
+        if last is None:
+            return None
+        return int((datetime.now() - last).total_seconds())
+    
+    def get_data_age_display(self) -> str:
+        """Get human-readable data age"""
+        age = self.get_data_age_seconds()
+        if age is None:
+            return "No data"
+        if age < 60:
+            return "Just now"
+        elif age < 3600:
+            return f"{age // 60}m ago"
+        elif age < 86400:
+            hours = age // 3600
+            return f"{hours}h ago"
+        else:
+            days = age // 86400
+            return f"{days}d ago"
+    
+    def is_data_stale(self, threshold_minutes: int = 30) -> bool:
+        """Check if data is older than threshold"""
+        age = self.get_data_age_seconds()
+        if age is None:
+            return False
+        return age > (threshold_minutes * 60)
+    
+    # =========================================================================
+    # DRILL-DOWN STATE
+    # =========================================================================
+    
+    def get_selected_product_id(self) -> Optional[int]:
+        """Get currently selected product ID for drill-down"""
+        return st.session_state.get(f'{self.STATE_KEY}_drilldown_product')
+    
+    def set_selected_product_id(self, product_id: Optional[int]):
+        """Set selected product ID for drill-down"""
+        st.session_state[f'{self.STATE_KEY}_drilldown_product'] = product_id
+    
+    def clear_drilldown(self):
+        """Clear drill-down selection"""
+        st.session_state[f'{self.STATE_KEY}_drilldown_product'] = None
