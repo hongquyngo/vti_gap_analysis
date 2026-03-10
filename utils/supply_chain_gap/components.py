@@ -351,7 +351,7 @@ def show_affected_customers_dialog():
             prod_agg_dict['at_risk_value_usd'] = 'sum'
         
         # Also grab first-row product info
-        for info_col in ['pt_code', 'product_name', 'shortage_qty', 'gap_status', 'standard_uom']:
+        for info_col in ['pt_code', 'product_name', 'package_size', 'brand', 'shortage_qty', 'gap_status', 'standard_uom']:
             if info_col in details.columns:
                 prod_agg_dict[info_col] = 'first'
         
@@ -378,7 +378,9 @@ def show_affected_customers_dialog():
         
         for col, label, width in [
             ('pt_code', 'Code', 'small'),
-            ('product_name', 'Product', 'medium'),
+            ('product_name', 'Part Number', 'medium'),
+            ('package_size', 'Pkg Size', 'small'),
+            ('brand', 'Brand', 'small'),
             ('standard_uom', 'UOM', 'small'),
         ]:
             if col in prod_summary.columns:
@@ -451,7 +453,8 @@ def show_affected_customers_dialog():
         for col, label, width in [
             ('customer', 'Customer', 'medium'),
             ('pt_code', 'Code', 'small'),
-            ('product_name', 'Product', 'medium'),
+            ('product_name', 'Part Number', 'medium'),
+            ('brand', 'Brand', 'small'),
             ('standard_uom', 'UOM', 'small'),
         ]:
             if col in filtered_details.columns:
@@ -718,6 +721,7 @@ def render_manufacturing_table(
             'product_name': str(row.get('product_name', ''))[:50],
             'package_size': str(row.get('package_size', '')) if pd.notna(row.get('package_size')) else '',
             'brand': row.get('brand', ''),
+            'standard_uom': row.get('standard_uom', ''),
             'net_gap': round(float(row.get('net_gap', 0)), 0),
             'at_risk_value': round(float(row.get('at_risk_value', 0)), 0) if pd.notna(row.get('at_risk_value')) else 0,
             'can_produce': '✅ Yes' if can_produce else '❌ No',
@@ -739,6 +743,7 @@ def render_manufacturing_table(
             'product_name': st.column_config.TextColumn('Part Number', width='medium'),
             'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
             'brand': st.column_config.TextColumn('Brand', width='small'),
+            'standard_uom': st.column_config.TextColumn('UOM', width='small'),
             'net_gap': st.column_config.NumberColumn('GAP'),
             'at_risk_value': st.column_config.NumberColumn('At Risk ($)'),
             'can_produce': st.column_config.TextColumn('Producible', width='small'),
@@ -778,7 +783,7 @@ def render_trading_table(
     page_df['net_gap'] = pd.to_numeric(page_df.get('net_gap', 0), errors='coerce').fillna(0).round(0)
     page_df['action'] = '🛒 Create PO'
     
-    display_cols = ['pt_code', 'product_name', 'package_size', 'brand', 'net_gap', 'at_risk_value', 'action']
+    display_cols = ['pt_code', 'product_name', 'package_size', 'brand', 'standard_uom', 'net_gap', 'at_risk_value', 'action']
     available = [c for c in display_cols if c in page_df.columns]
     
     styled = _styled_dataframe(
@@ -793,6 +798,7 @@ def render_trading_table(
             'product_name': st.column_config.TextColumn('Part Number', width='medium'),
             'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
             'brand': st.column_config.TextColumn('Brand', width='small'),
+            'standard_uom': st.column_config.TextColumn('UOM', width='small'),
             'net_gap': st.column_config.NumberColumn('GAP'),
             'at_risk_value': st.column_config.NumberColumn('At Risk ($)'),
             'action': st.column_config.TextColumn('Action', width='small'),
@@ -857,7 +863,7 @@ def render_raw_material_table(
     display_cols = ['material_pt_code', 'material_name', 'material_brand', 'material_uom', 'material_type']
     col_config = {
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
-        'material_name': st.column_config.TextColumn('Material', width='medium'),
+        'material_name': st.column_config.TextColumn('Part Number', width='medium'),
         'material_brand': st.column_config.TextColumn('Brand', width='small'),
         'material_uom': st.column_config.TextColumn('UOM', width='small'),
         'material_type': st.column_config.TextColumn('Type', width='small'),
@@ -927,7 +933,7 @@ def render_semi_finished_table(
         styled,
         column_config={
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
-            'material_name': st.column_config.TextColumn('Material', width='medium'),
+            'material_name': st.column_config.TextColumn('Part Number', width='medium'),
             'material_brand': st.column_config.TextColumn('Brand', width='small'),
             'material_uom': st.column_config.TextColumn('UOM', width='small'),
             'bom_level': st.column_config.NumberColumn('Level', format="%d", width='small'),
@@ -995,7 +1001,7 @@ def render_action_table(
         column_config={
             'action_display': st.column_config.TextColumn('Action', width='medium'),
             'pt_code': st.column_config.TextColumn('Code', width='small'),
-            'product_name': st.column_config.TextColumn('Name', width='medium'),
+            'product_name': st.column_config.TextColumn('Part Number', width='medium'),
             'quantity': st.column_config.NumberColumn('Qty'),
             'uom': st.column_config.TextColumn('UOM', width='small'),
             'priority': st.column_config.NumberColumn('Priority', format="%d"),
@@ -1142,6 +1148,7 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
             'material_pt_code': mat.get('material_pt_code', ''),
             'material_name': str(mat.get('material_name', ''))[:40],
             'material_brand': mat.get('material_brand', '') if pd.notna(mat.get('material_brand')) else '',
+            'material_uom': mat.get('material_uom', '') if pd.notna(mat.get('material_uom')) else '',
             'type_label': '🔵 Primary' if is_primary else '🔄 Alt',
             'quantity_per_output': round(float(mat.get('quantity_per_output', 0) or 0), 2),
             'scrap_rate': round(float(mat.get('scrap_rate', 0) or 0), 1),
@@ -1154,8 +1161,9 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
     styled = _styled_dataframe(mat_df, qty_cols=['total_supply', 'net_gap'])
     st.dataframe(styled, column_config={
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
-        'material_name': st.column_config.TextColumn('Material', width='medium'),
+        'material_name': st.column_config.TextColumn('Part Number', width='medium'),
         'material_brand': st.column_config.TextColumn('Brand', width='small'),
+        'material_uom': st.column_config.TextColumn('UOM', width='small'),
         'type_label': st.column_config.TextColumn('Type', width='small'),
         'quantity_per_output': st.column_config.NumberColumn('Qty/Output', format="%.2f"),
         'scrap_rate': st.column_config.NumberColumn('Scrap %', format="%.1f%%"),

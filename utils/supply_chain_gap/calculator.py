@@ -237,6 +237,7 @@ class SupplyChainGAPCalculator:
                 'product_name': 'first',
                 'pt_code': 'first',
                 'brand': 'first',
+                'package_size': 'first',
                 'standard_uom': 'first',
                 'unit_cost_usd': 'mean'
             }).reset_index()
@@ -259,6 +260,7 @@ class SupplyChainGAPCalculator:
                 'product_name': 'first',
                 'pt_code': 'first',
                 'brand': 'first',
+                'package_size': 'first',
                 'standard_uom': 'first',
                 'customer': lambda x: x.nunique()
             }
@@ -312,7 +314,7 @@ class SupplyChainGAPCalculator:
         if not demand_agg.empty:
             gap_df = gap_df.merge(demand_agg, on='product_id', how='left', suffixes=('', '_demand'))
             # Clean up duplicate columns
-            for col in ['product_name', 'pt_code', 'brand', 'standard_uom']:
+            for col in ['product_name', 'pt_code', 'brand', 'package_size', 'standard_uom']:
                 if f'{col}_demand' in gap_df.columns:
                     gap_df[col] = gap_df[col].fillna(gap_df[f'{col}_demand'])
                     gap_df.drop(columns=[f'{col}_demand'], inplace=True)
