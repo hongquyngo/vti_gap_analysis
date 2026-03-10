@@ -77,7 +77,7 @@ def render_data_freshness(state, on_refresh=None):
         refresh_clicked = st.button(
             "🔄 Refresh",
             key="scg_refresh_btn",
-            use_container_width=True,
+            width='stretch',
             type="secondary"
         )
         if refresh_clicked:
@@ -222,7 +222,7 @@ def render_quick_filter(key_prefix: str = "fg") -> str:
             if st.button(
                 label,
                 key=f"{key_prefix}_qf_{key}",
-                use_container_width=True,
+                width='stretch',
                 type="primary" if selected == key else "secondary"
             ):
                 st.session_state[f'{key_prefix}_quick_filter'] = key
@@ -332,7 +332,7 @@ def render_fg_table(
     st.dataframe(
         page_df[available_cols],
         column_config=_get_column_config_fg(),
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=min(400, 35 * len(page_df) + 38)
     )
@@ -400,7 +400,7 @@ def render_manufacturing_table(
             'reason': st.column_config.TextColumn('Reason', width='medium'),
             'bom_code': st.column_config.TextColumn('BOM', width='small'),
         },
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=min(400, 35 * len(display_df) + 38)
     )
@@ -455,7 +455,7 @@ def render_trading_table(
             'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %.0f"),
             'action': st.column_config.TextColumn('Action', width='small'),
         },
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=min(400, 35 * len(page_df) + 38)
     )
@@ -541,7 +541,7 @@ def render_raw_material_table(
                 'Coverage', format="%.0f%%", min_value=0, max_value=200
             ),
         },
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=min(400, 35 * len(page_df) + 38)
     )
@@ -621,7 +621,7 @@ def render_action_table(
             'priority': st.column_config.NumberColumn('Priority', format="%d"),
             'reason': st.column_config.TextColumn('Reason', width='medium'),
         },
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=min(400, 35 * len(page_df) + 38)
     )
@@ -665,19 +665,25 @@ def render_product_drilldown(result: SupplyChainGAPResult, filtered_df: pd.DataF
         icon = '🔴' if gap < 0 else '🟢' if gap > 0 else '⚪'
         options[f"{icon} {code} — {name} (GAP: {gap:,.0f})"] = pid
     
+    # Handle clear action (must happen before selectbox renders)
+    if st.session_state.get('_scg_drilldown_clear_flag', False):
+        st.session_state['_scg_drilldown_clear_flag'] = False
+        st.session_state['scg_drilldown_select'] = '— Select a product —'
+    
     # Selection
     col1, col2 = st.columns([3, 1])
     with col1:
+        option_list = ['— Select a product —'] + list(options.keys())
         selected_label = st.selectbox(
             "Select product to inspect",
-            options=['— Select a product —'] + list(options.keys()),
+            options=option_list,
             key="scg_drilldown_select",
             label_visibility="collapsed",
             placeholder="🔍 Select a product to inspect..."
         )
     with col2:
-        if st.button("✖ Clear", key="scg_drilldown_clear", use_container_width=True):
-            st.session_state['scg_drilldown_select'] = '— Select a product —'
+        if st.button("✖ Clear", key="scg_drilldown_clear", width='stretch'):
+            st.session_state['_scg_drilldown_clear_flag'] = True
             st.rerun()
     
     if selected_label == '— Select a product —' or selected_label not in options:
@@ -862,7 +868,7 @@ def _render_drilldown_manufacturing(
             'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
             'status_icon': st.column_config.TextColumn('', width='small'),
         },
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         height=min(300, 35 * len(mat_df) + 38)
     )

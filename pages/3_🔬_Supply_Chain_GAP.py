@@ -179,7 +179,7 @@ def main():
     # Sidebar
     with st.sidebar:
         st.markdown(f"👤 **User:** {auth_manager.get_user_display_name()}")
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("🚪 Logout", width='stretch'):
             auth_manager.logout()
             st.rerun()
         
@@ -194,7 +194,7 @@ def main():
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        if st.button("🔄 Reset", use_container_width=True):
+        if st.button("🔄 Reset", width='stretch'):
             state.reset_filters()
             st.rerun()
     
@@ -202,7 +202,7 @@ def main():
         calculate_clicked = st.button(
             "🔬 Analyze",
             type="primary",
-            use_container_width=True
+            width='stretch'
         )
     
     with col3:
@@ -434,7 +434,7 @@ def main():
         col1, col2 = st.columns([1, 3])
         
         with col1:
-            if st.button("📥 Export Excel", type="primary", use_container_width=True):
+            if st.button("📥 Export Excel", type="primary", width='stretch'):
                 try:
                     excel_data = export_to_excel(result, filter_values)
                     filename = get_export_filename()
