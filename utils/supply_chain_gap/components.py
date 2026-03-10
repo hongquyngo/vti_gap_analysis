@@ -100,20 +100,25 @@ def render_kpi_cards(result: SupplyChainGAPResult):
     cols = st.columns(5)
     
     with cols[0]:
-        _kpi_card("Total Products", metrics.get('fg_total', 0), icon="📦", color="#6B7280")
+        _kpi_card("Total Products", metrics.get('fg_total', 0), icon="📦", color="#6B7280",
+                   tooltip="Tổng số sản phẩm FG có supply hoặc demand trong kỳ phân tích")
     
     with cols[1]:
-        _kpi_card("Shortage", metrics.get('fg_shortage', 0), icon="🔴", color="#DC2626")
+        _kpi_card("Shortage", metrics.get('fg_shortage', 0), icon="🔴", color="#DC2626",
+                   tooltip="Số sản phẩm có Net GAP < 0 (cung không đủ cầu sau khi trừ safety stock)")
     
     with cols[2]:
-        _kpi_card("Surplus", metrics.get('fg_surplus', 0), icon="📈", color="#3B82F6")
+        _kpi_card("Surplus", metrics.get('fg_surplus', 0), icon="📈", color="#3B82F6",
+                   tooltip="Số sản phẩm có Net GAP > 0 (cung dư so với cầu)")
     
     with cols[3]:
         at_risk = metrics.get('at_risk_value', 0)
-        _kpi_card("At Risk Value", f"${at_risk:,.0f}", icon="💰", color="#F59E0B")
+        _kpi_card("At Risk Value", f"${at_risk:,.0f}", icon="💰", color="#F59E0B",
+                   tooltip="Tổng giá trị rủi ro (USD) = ∑ |Net GAP| × avg_unit_price_usd cho các sản phẩm shortage")
     
     with cols[4]:
-        _kpi_card("Affected Customers", metrics.get('affected_customers', 0), icon="👥", color="#8B5CF6")
+        _kpi_card("Affected Customers", metrics.get('affected_customers', 0), icon="👥", color="#8B5CF6",
+                   tooltip="Số khách hàng có đơn hàng liên quan đến sản phẩm shortage")
     
     # Row 2: Classification
     if result.has_classification():
@@ -121,16 +126,20 @@ def render_kpi_cards(result: SupplyChainGAPResult):
         cols = st.columns(4)
         
         with cols[0]:
-            _kpi_card("Manufacturing", metrics.get('manufacturing_count', 0), icon="🏭", color="#3B82F6")
+            _kpi_card("Manufacturing", metrics.get('manufacturing_count', 0), icon="🏭", color="#3B82F6",
+                       tooltip="Sản phẩm có BOM — có thể tự sản xuất từ nguyên vật liệu")
         
         with cols[1]:
-            _kpi_card("Trading", metrics.get('trading_count', 0), icon="🛒", color="#10B981")
+            _kpi_card("Trading", metrics.get('trading_count', 0), icon="🛒", color="#10B981",
+                       tooltip="Sản phẩm không có BOM — cần mua trực tiếp từ nhà cung cấp")
         
         with cols[2]:
-            _kpi_card("Raw Materials", metrics.get('raw_total', 0), icon="🧪", color="#8B5CF6")
+            _kpi_card("Raw Materials", metrics.get('raw_total', 0), icon="🧪", color="#8B5CF6",
+                       tooltip="Tổng số NVL cần phân tích (từ BOM explosion của sản phẩm Manufacturing shortage)")
         
         with cols[3]:
-            _kpi_card("Raw Shortage", metrics.get('raw_shortage', 0), icon="⚠️", color="#DC2626")
+            _kpi_card("Raw Shortage", metrics.get('raw_shortage', 0), icon="⚠️", color="#DC2626",
+                       tooltip="Số NVL có Net GAP < 0 (không đủ cho nhu cầu sản xuất + MO pending)")
     
     # Row 3: Actions
     if result.has_actions():
@@ -139,28 +148,36 @@ def render_kpi_cards(result: SupplyChainGAPResult):
         
         with cols[0]:
             total = metrics.get('mo_count', 0) + metrics.get('po_fg_count', 0) + metrics.get('po_raw_count', 0)
-            _kpi_card("Total Actions", total, icon="📋", color="#6B7280")
+            _kpi_card("Total Actions", total, icon="📋", color="#6B7280",
+                       tooltip="Tổng số hành động cần thực hiện = MO + PO-FG + PO-Raw")
         
         with cols[1]:
-            _kpi_card("MO to Create", metrics.get('mo_count', 0), icon="🏭", color="#3B82F6")
+            _kpi_card("MO to Create", metrics.get('mo_count', 0), icon="🏭", color="#3B82F6",
+                       tooltip="Số Manufacturing Order cần tạo (sản phẩm Manufacturing có shortage, bao gồm CREATE_MO, WAIT_RAW, USE_ALTERNATIVE)")
         
         with cols[2]:
-            _kpi_card("PO for FG", metrics.get('po_fg_count', 0), icon="🛒", color="#10B981")
+            _kpi_card("PO for FG", metrics.get('po_fg_count', 0), icon="🛒", color="#10B981",
+                       tooltip="Số PO cần tạo để mua thành phẩm (sản phẩm Trading có shortage)")
         
         with cols[3]:
-            _kpi_card("PO for Raw", metrics.get('po_raw_count', 0), icon="📦", color="#8B5CF6")
+            _kpi_card("PO for Raw", metrics.get('po_raw_count', 0), icon="📦", color="#8B5CF6",
+                       tooltip="Số PO cần tạo để mua NVL (NVL chính shortage, không có alternative đủ)")
 
 
-def _kpi_card(label: str, value: Any, icon: str = "📊", color: str = "#3B82F6"):
-    """Render single KPI card"""
+def _kpi_card(label: str, value: Any, icon: str = "📊", color: str = "#3B82F6", tooltip: str = ""):
+    """Render single KPI card with optional tooltip"""
+    tooltip_attr = f'title="{tooltip}"' if tooltip else ''
+    tooltip_icon = f'<span title="{tooltip}" style="cursor:help;font-size:12px;color:#9CA3AF;position:absolute;top:8px;right:10px;">ⓘ</span>' if tooltip else ''
     st.markdown(f"""
-    <div style="
+    <div {tooltip_attr} style="
         background: white;
         border-radius: 8px;
         padding: 12px 16px;
         border-left: 4px solid {color};
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        position: relative;
     ">
+        {tooltip_icon}
         <div style="font-size: 20px; margin-bottom: 4px;">{icon}</div>
         <div style="font-size: 24px; font-weight: 700; color: #1F2937;">{value}</div>
         <div style="font-size: 12px; color: #6B7280;">{label}</div>
