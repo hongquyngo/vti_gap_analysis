@@ -120,6 +120,7 @@ def _write_summary_sheet(
         data.append(['Exclude Expired', 'Yes' if filter_values.get('exclude_expired') else 'No'])
         data.append(['MO Expected in Supply', 'Yes' if filter_values.get('include_mo_expected') else 'No'])
         data.append(['Existing MO Demand', 'Yes' if filter_values.get('include_existing_mo') else 'No'])
+        data.append(['Include DRAFT MO', 'Yes' if filter_values.get('include_draft_mo') else 'No'])
         
         # Double-count warning in export
         if not filter_values.get('include_mo_expected') and filter_values.get('include_existing_mo'):

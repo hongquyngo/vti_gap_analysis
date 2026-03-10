@@ -413,14 +413,28 @@ class SupplyChainDataLoader:
     def load_existing_mo_demand(
         self,
         entity_name: Optional[str] = None,
-        material_ids: Optional[Tuple[int, ...]] = None
+        material_ids: Optional[Tuple[int, ...]] = None,
+        include_draft_mo: bool = False
     ) -> pd.DataFrame:
         """
         Load existing MO demand for raw materials.
         Uses manufacturing_raw_demand_view.
+        
+        Args:
+            include_draft_mo: If True, include DRAFT MOs. Default False because:
+                - DRAFT MO output is only in FG supply when user enables it
+                - Both sides (FG supply + raw demand) must include the same MO set
+                - DRAFT MOs are uncommitted and may be cancelled
         """
         
-        query = """
+        # Build status list matching MO_EXPECTED in unified_supply_view
+        mo_statuses = ['CONFIRMED', 'IN_PROGRESS']
+        if include_draft_mo:
+            mo_statuses.append('DRAFT')
+        
+        status_placeholders = ', '.join([f"'{s}'" for s in mo_statuses])
+        
+        query = f"""
         SELECT 
             material_id,
             material_pt_code,
@@ -443,7 +457,7 @@ class SupplyChainDataLoader:
             urgency_level,
             entity_name
         FROM manufacturing_raw_demand_view
-        WHERE 1=1
+        WHERE mo_status IN ({status_placeholders})
         """
         params = {}
         

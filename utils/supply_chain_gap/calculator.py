@@ -59,7 +59,8 @@ class SupplyChainGAPCalculator:
         include_fg_safety: bool = True,
         include_raw_safety: bool = True,
         include_alternatives: bool = True,
-        include_existing_mo: bool = True
+        include_existing_mo: bool = True,
+        include_draft_mo: bool = False
     ) -> SupplyChainGAPResult:
         """
         Perform full Supply Chain GAP calculation.
@@ -73,6 +74,19 @@ class SupplyChainGAPCalculator:
         include_mo_expected = (
             selected_supply_sources is not None and 'MO_EXPECTED' in selected_supply_sources
         )
+        
+        # Filter DRAFT MO from FG supply if not included
+        # unified_supply_view returns DRAFT+CONFIRMED+IN_PROGRESS for MO_EXPECTED;
+        # availability_status column holds the MO status.
+        if not include_draft_mo and not fg_supply_df.empty:
+            before = len(fg_supply_df)
+            fg_supply_df = fg_supply_df[
+                ~((fg_supply_df['supply_source'] == 'MO_EXPECTED') & 
+                  (fg_supply_df['availability_status'] == 'DRAFT'))
+            ].copy()
+            filtered = before - len(fg_supply_df)
+            if filtered > 0:
+                logger.info(f"Excluded {filtered} DRAFT MO rows from FG supply")
         
         # Double-count detection: MO output NOT in FG supply but MO raw demand IS included
         if not include_mo_expected and include_existing_mo:
@@ -90,7 +104,8 @@ class SupplyChainGAPCalculator:
                 'include_fg_safety': include_fg_safety,
                 'include_raw_safety': include_raw_safety,
                 'include_mo_expected': include_mo_expected,
-                'include_existing_mo': include_existing_mo
+                'include_existing_mo': include_existing_mo,
+                'include_draft_mo': include_draft_mo
             }
         )
         

@@ -52,7 +52,7 @@ class SupplyChainFilters:
         
         # Options - use columns instead of expander
         st.markdown("##### Options")
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         with col1:
             include_fg_safety = st.checkbox(
@@ -94,6 +94,15 @@ class SupplyChainFilters:
                 help="Include raw material demand from existing manufacturing orders"
             )
         
+        with col6:
+            include_draft_mo = st.checkbox(
+                "Include DRAFT MO",
+                value=False,
+                key="scg_draft_mo",
+                help="Include DRAFT Manufacturing Orders in MO Expected supply and Existing MO demand. "
+                     "Default OFF — DRAFT MOs are uncommitted and may be cancelled."
+            )
+        
         # Detect MO Expected in supply sources
         include_mo_expected = 'MO_EXPECTED' in supply_sources
         
@@ -121,7 +130,8 @@ class SupplyChainFilters:
             'exclude_expired': exclude_expired,
             'include_alternatives': include_alternatives,
             'include_existing_mo': include_existing_mo,
-            'include_mo_expected': include_mo_expected
+            'include_mo_expected': include_mo_expected,
+            'include_draft_mo': include_draft_mo
         }
     
     def _render_entity_filter(self) -> Optional[str]:

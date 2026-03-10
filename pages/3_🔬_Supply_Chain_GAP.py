@@ -124,7 +124,8 @@ def calculate_gap(
         existing_mo = None
         if filter_values.get('include_existing_mo', True):
             existing_mo = data_loader.load_existing_mo_demand(
-                entity_name=filter_values.get('entity')
+                entity_name=filter_values.get('entity'),
+                include_draft_mo=filter_values.get('include_draft_mo', False)
             )
         
         # Load Raw Material Supply
@@ -154,7 +155,8 @@ def calculate_gap(
             include_fg_safety=filter_values.get('include_fg_safety', True),
             include_raw_safety=filter_values.get('include_raw_safety', True),
             include_alternatives=filter_values.get('include_alternatives', True),
-            include_existing_mo=filter_values.get('include_existing_mo', True)
+            include_existing_mo=filter_values.get('include_existing_mo', True),
+            include_draft_mo=filter_values.get('include_draft_mo', False)
         )
         
         logger.info(f"Supply Chain GAP calculated: {result.get_summary()}")
