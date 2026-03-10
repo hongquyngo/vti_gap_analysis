@@ -4,14 +4,16 @@
 Supply Chain GAP Analysis Module
 Independent module for full multi-level analysis
 
-Version: 1.0.0
+Version: 2.1.0
 
 Features:
 - Level 1: FG/Output Product GAP
-- Level 2: Raw Material GAP
+- Level 2: Raw Material GAP (multi-level BOM)
 - Product Classification (Manufacturing vs Trading)
 - BOM Explosion with Alternatives
 - Action Recommendations (MO, PO-FG, PO-Raw)
+- @st.fragment per tab (no full-page reruns)
+- @st.dialog drill-down (row selection → modal)
 """
 
 from .constants import (
@@ -61,10 +63,16 @@ from .filters import (
 )
 
 from .components import (
+    # KPI & Status
     render_kpi_cards,
     render_status_summary,
+    render_data_freshness,
+    
+    # Quick Filter
     render_quick_filter,
     apply_quick_filter,
+    
+    # Tables
     render_fg_table,
     render_manufacturing_table,
     render_trading_table,
@@ -72,8 +80,17 @@ from .components import (
     render_semi_finished_table,
     render_action_table,
     render_pagination,
-    render_product_drilldown,
-    render_data_freshness
+    
+    # Drill-Down Dialog
+    show_product_detail_dialog,
+    
+    # Fragment wrappers (v2.1)
+    fg_charts_fragment,
+    fg_table_fragment,
+    manufacturing_fragment,
+    trading_fragment,
+    raw_materials_fragment,
+    actions_fragment,
 )
 
 from .help import (
@@ -145,9 +162,10 @@ __all__ = [
     'SupplyChainFilters',
     'get_filters',
     
-    # Components
+    # Components — individual
     'render_kpi_cards',
     'render_status_summary',
+    'render_data_freshness',
     'render_quick_filter',
     'apply_quick_filter',
     'render_fg_table',
@@ -157,8 +175,19 @@ __all__ = [
     'render_semi_finished_table',
     'render_action_table',
     'render_pagination',
-    'render_product_drilldown',
-    'render_data_freshness',
+    
+    # Drill-Down Dialog
+    'show_product_detail_dialog',
+    
+    # Fragment wrappers (v2.1)
+    'fg_charts_fragment',
+    'fg_table_fragment',
+    'manufacturing_fragment',
+    'trading_fragment',
+    'raw_materials_fragment',
+    'actions_fragment',
+    
+    # Help
     'render_help_dialog',
     'render_help_tab',
     'render_help_popover',

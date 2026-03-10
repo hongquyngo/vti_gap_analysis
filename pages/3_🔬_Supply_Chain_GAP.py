@@ -3,6 +3,10 @@
 """
 Supply Chain GAP Analysis Page
 Full multi-level analysis: FG + Raw Materials
+
+VERSION: 2.1.0
+- v2.1: @st.fragment per tab — no full-page reruns on pagination/filter/selection
+         @st.dialog drill-down — click row → View Details in modal
 """
 
 import streamlit as st
@@ -42,19 +46,15 @@ from utils.supply_chain_gap import (
     export_to_excel,
     get_export_filename,
     render_kpi_cards,
-    render_status_summary,
-    render_quick_filter,
-    apply_quick_filter,
-    render_fg_table,
-    render_manufacturing_table,
-    render_trading_table,
-    render_raw_material_table,
-    render_semi_finished_table,
-    render_action_table,
-    render_pagination,
-    render_product_drilldown,
     render_data_freshness,
     render_help_popover,
+    # Fragment functions for each tab
+    fg_charts_fragment,
+    fg_table_fragment,
+    manufacturing_fragment,
+    trading_fragment,
+    raw_materials_fragment,
+    actions_fragment,
     UI_CONFIG
 )
 
@@ -188,14 +188,16 @@ def main():
     # Sidebar
     with st.sidebar:
         st.markdown(f"👤 **User:** {auth_manager.get_user_display_name()}")
-        if st.button("🚪 Logout", width='stretch'):
+        if st.button("🚪 Logout", use_container_width=True):
             auth_manager.logout()
             st.rerun()
         
         st.divider()
         st.caption(f"Version {VERSION}")
     
-    # Filters section
+    # =========================================================================
+    # FILTERS (kept outside fragments — cascading selects need full reruns)
+    # =========================================================================
     with st.expander("🔧 **Configuration**", expanded=True):
         filter_values = filters.render_filters()
     
@@ -203,7 +205,7 @@ def main():
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        if st.button("🔄 Reset", width='stretch'):
+        if st.button("🔄 Reset", use_container_width=True):
             state.reset_filters()
             st.rerun()
     
@@ -211,7 +213,7 @@ def main():
         calculate_clicked = st.button(
             "🔬 Analyze",
             type="primary",
-            width='stretch'
+            use_container_width=True
         )
     
     with col3:
@@ -261,7 +263,10 @@ def main():
     
     st.divider()
     
-    # Main Tabs - always visible
+    # =========================================================================
+    # MAIN TABS — each tab body is a @st.fragment
+    # Interactions inside a tab only rerun that fragment, not the full page.
+    # =========================================================================
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 FG Overview",
         "🏭 Manufacturing",
@@ -270,172 +275,35 @@ def main():
         "📋 Actions"
     ])
     
-    # Tab 1: FG Overview + Drill-Down
+    # Tab 1: FG Overview  (two fragments: charts + interactive table)
     with tab1:
         st.subheader("📊 Finished Goods GAP")
-        
-        # Visual Analysis
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = charts.create_status_donut(result.fg_gap_df)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig = charts.create_value_analysis(result.fg_gap_df)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Status summary
-        render_status_summary(result.fg_gap_df, key_prefix="fg")
-        
-        # Quick filter
-        quick_filter = render_quick_filter(key_prefix="fg")
-        filtered_df = apply_quick_filter(result.fg_gap_df, quick_filter)
-        
-        # Table controls
-        col1, col2, col3 = st.columns([1, 1, 2])
-        with col1:
-            items_per_page = st.selectbox(
-                "Items per page",
-                UI_CONFIG['items_per_page_options'],
-                index=1,
-                key="fg_items_per_page"
-            )
-        with col2:
-            search = st.text_input("Search", placeholder="Filter...", key="fg_search")
-            if search:
-                mask = filtered_df.astype(str).apply(
-                    lambda x: x.str.contains(search, case=False, na=False)
-                ).any(axis=1)
-                filtered_df = filtered_df[mask]
-        
-        # FG Table (sortable columns)
-        page_info = render_fg_table(filtered_df, items_per_page, state.get_page('fg'))
-        
-        if page_info:
-            new_page = render_pagination(page_info['page'], page_info['total_pages'], "fg")
-            if new_page != page_info['page']:
-                state.set_page(new_page, 'fg', page_info['total_pages'])
-                st.rerun()
-        
-        # Drill-Down Panel
-        render_product_drilldown(result, filtered_df)
+        fg_charts_fragment(result, charts)
+        fg_table_fragment(result)
     
-    # Tab 2: Manufacturing (with pagination)
+    # Tab 2: Manufacturing
     with tab2:
         st.subheader("🏭 Manufacturing Products")
-        
-        if result.has_classification():
-            col1, col2 = st.columns(2)
-            with col1:
-                fig = charts.create_classification_pie(
-                    len(result.manufacturing_df),
-                    len(result.trading_df)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                metrics = result.get_metrics()
-                st.metric("Total Manufacturing", metrics.get('manufacturing_count', 0))
-                st.metric("With Shortage", len(result.get_manufacturing_shortage()))
-        
-        page_info = render_manufacturing_table(result, items_per_page=25, current_page=state.get_page('mfg'))
-        if page_info and page_info.get('total_pages', 1) > 1:
-            new_page = render_pagination(page_info['page'], page_info['total_pages'], "mfg")
-            if new_page != page_info['page']:
-                state.set_page(new_page, 'mfg', page_info['total_pages'])
-                st.rerun()
+        manufacturing_fragment(result, charts)
     
-    # Tab 3: Trading (with pagination)
+    # Tab 3: Trading
     with tab3:
         st.subheader("🛒 Trading Products")
-        page_info = render_trading_table(result, items_per_page=25, current_page=state.get_page('trading'))
-        if page_info and page_info.get('total_pages', 1) > 1:
-            new_page = render_pagination(page_info['page'], page_info['total_pages'], "trading")
-            if new_page != page_info['page']:
-                state.set_page(new_page, 'trading', page_info['total_pages'])
-                st.rerun()
+        trading_fragment(result)
     
-    # Tab 4: Raw Materials (with pagination)
+    # Tab 4: Raw Materials
     with tab4:
         st.subheader("🧪 Raw Material GAP")
-        
-        if result.has_raw_data():
-            metrics = result.get_metrics()
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                fig = charts.create_raw_material_status(result.raw_gap_df)
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                raw_metrics = result.raw_metrics
-                st.metric("Total Raw Materials", raw_metrics.get('total_materials', 0))
-                st.metric("With Shortage", raw_metrics.get('shortage_count', 0))
-                st.metric("Sufficient", raw_metrics.get('sufficient_count', 0))
-                
-                # Multi-level info
-                max_depth = metrics.get('max_bom_depth', 1)
-                semi_count = metrics.get('semi_finished_total', 0)
-                if max_depth > 1 or semi_count > 0:
-                    st.metric("BOM Depth", f"{max_depth} levels")
-                    st.metric("Semi-Finished", semi_count)
-            
-            # Semi-finished section (only if multi-level)
-            if result.has_semi_finished_data():
-                st.markdown("#### 🔶 Semi-Finished Products (Supply Netting)")
-                st.caption(
-                    "Semi-finished products have their own BOMs. "
-                    "Supply netting: if inventory covers demand, no further BOM explosion needed."
-                )
-                render_semi_finished_table(result, items_per_page=25, current_page=1)
-                st.divider()
-            
-            # Raw materials table
-            st.markdown("#### 🧪 Raw Materials (Leaf Nodes)")
-            page_info = render_raw_material_table(result, items_per_page=25, current_page=state.get_page('raw'))
-            if page_info and page_info.get('total_pages', 1) > 1:
-                new_page = render_pagination(page_info['page'], page_info['total_pages'], "raw")
-                if new_page != page_info['page']:
-                    state.set_page(new_page, 'raw', page_info['total_pages'])
-                    st.rerun()
-        else:
-            st.info("No raw material data available")
+        raw_materials_fragment(result, charts)
     
     # Tab 5: Actions
     with tab5:
         st.subheader("📋 Action Recommendations")
-        
-        if result.has_actions():
-            metrics = result.get_metrics()
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                fig = charts.create_action_summary(
-                    metrics.get('mo_count', 0),
-                    metrics.get('po_fg_count', 0),
-                    metrics.get('po_raw_count', 0)
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Action sub-tabs
-            action_tab1, action_tab2, action_tab3 = st.tabs([
-                f"🏭 MO ({metrics.get('mo_count', 0)})",
-                f"🛒 PO-FG ({metrics.get('po_fg_count', 0)})",
-                f"📦 PO-Raw ({metrics.get('po_raw_count', 0)})"
-            ])
-            
-            with action_tab1:
-                render_action_table(result, action_type='mo')
-            
-            with action_tab2:
-                render_action_table(result, action_type='po_fg')
-            
-            with action_tab3:
-                render_action_table(result, action_type='po_raw')
-        else:
-            st.success("✅ No actions required")
+        actions_fragment(result, charts)
     
-    # Export & Footer
+    # =========================================================================
+    # EXPORT & FOOTER
+    # =========================================================================
     st.divider()
     
     st.subheader("📥 Export")
@@ -444,7 +312,7 @@ def main():
     
     with col1:
         try:
-            # Cache export data by result timestamp to avoid regenerating on every rerun
+            # Cache export data by result timestamp
             cache_key = f"export_cache_{result.timestamp.isoformat()}"
             if cache_key not in st.session_state:
                 st.session_state[cache_key] = export_to_excel(result, state.get_filters() or filter_values)
