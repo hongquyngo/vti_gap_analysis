@@ -68,7 +68,10 @@ from .components import (
     render_trading_table,
     render_raw_material_table,
     render_action_table,
-    render_pagination,
+    render_pagination
+)
+
+from .help import (
     render_help_dialog,
     render_formula_help_section,
     render_field_tooltip
