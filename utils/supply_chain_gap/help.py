@@ -96,6 +96,36 @@ def render_formula_help_section(section_key: str = 'all'):
 
 
 # =============================================================================
+# MAIN HELP - POPOVER VERSION (preferred)
+# =============================================================================
+
+def render_help_popover():
+    """
+    Render help as a popover button — compact, accessible from anywhere.
+    Uses tabs inside popover for navigation.
+    """
+    
+    with st.popover("❓"):
+        
+        tab1, tab2, tab3 = st.tabs([
+            "📖 Hướng dẫn",
+            "📘 Định nghĩa & Công thức",
+            "💬 Q&A"
+        ])
+        
+        with tab1:
+            _render_usage_guide()
+        
+        with tab2:
+            _render_glossary()
+            st.divider()
+            _render_formulas()
+        
+        with tab3:
+            _render_faq()
+
+
+# =============================================================================
 # MAIN HELP - TAB VERSION (for use inside st.tabs)
 # =============================================================================
 

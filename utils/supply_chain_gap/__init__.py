@@ -76,6 +76,7 @@ from .components import (
 from .help import (
     render_help_dialog,
     render_help_tab,
+    render_help_popover,
     render_formula_help_section,
     render_field_tooltip
 )
@@ -154,6 +155,7 @@ __all__ = [
     'render_data_freshness',
     'render_help_dialog',
     'render_help_tab',
+    'render_help_popover',
     'render_formula_help_section',
     'render_field_tooltip',
     

@@ -53,7 +53,7 @@ from utils.supply_chain_gap import (
     render_pagination,
     render_product_drilldown,
     render_data_freshness,
-    render_help_tab,
+    render_help_popover,
     UI_CONFIG
 )
 
@@ -172,8 +172,14 @@ def main():
     # Initialize
     state, data_loader, calculator, formatter, filters, charts = initialize_system()
     
-    # Page header
-    st.title("🔬 Supply Chain GAP Analysis")
+    # Page header with help popover
+    col_title, col_help = st.columns([10, 1])
+    with col_title:
+        st.title("🔬 Supply Chain GAP Analysis")
+    with col_help:
+        st.markdown("<div style='margin-top:16px;'>", unsafe_allow_html=True)
+        render_help_popover()
+        st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("Full Multi-Level Analysis: FG + Raw Materials")
     
     # Sidebar
@@ -251,14 +257,13 @@ def main():
     
     st.divider()
     
-    # Main Tabs - always visible (Help tab accessible anytime)
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    # Main Tabs - always visible
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 FG Overview",
         "🏭 Manufacturing",
         "🛒 Trading",
         "🧪 Raw Materials",
-        "📋 Actions",
-        "📖 Help"
+        "📋 Actions"
     ])
     
     # Tab 1: FG Overview + Drill-Down
@@ -419,10 +424,6 @@ def main():
                     render_action_table(result, action_type='po_raw')
             else:
                 st.success("✅ No actions required")
-    
-    # Tab 6: Help - always available
-    with tab6:
-        render_help_tab()
     
     # Export & Footer - only when result exists
     if result:
