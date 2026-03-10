@@ -16,7 +16,7 @@ from .constants import (
     STATUS_CONFIG, GAP_CATEGORIES, PRODUCT_TYPES,
     ACTION_TYPES, RAW_MATERIAL_STATUS, THRESHOLDS,
     FIELD_TOOLTIPS, FORMULA_HELP, SUPPLY_SOURCES, DEMAND_SOURCES,
-    BOM_TYPES, MATERIAL_TYPES, VERSION
+    BOM_TYPES, MATERIAL_TYPES, MATERIAL_CATEGORIES, MAX_BOM_LEVELS, VERSION
 )
 
 
@@ -204,13 +204,16 @@ def _render_usage_guide():
     giúp nhận diện sản phẩm thiếu hụt (shortage) hoặc dư thừa (surplus) và đề xuất hành động 
     (tạo MO, PO) để đảm bảo đáp ứng nhu cầu khách hàng.
     
-    Hệ thống phân tích **2 cấp độ**:
+    Hệ thống phân tích **đa cấp (multi-level)**:
     - **Level 1 — Finished Goods (FG):** So sánh tổng nguồn cung vs tổng nhu cầu cho từng sản phẩm thành phẩm
-    - **Level 2 — Raw Materials:** Với sản phẩm Manufacturing có shortage, phân tích nguyên vật liệu cần thiết qua BOM explosion
+    - **Level 2+ — Materials (Multi-level BOM):** Với sản phẩm Manufacturing có shortage, phân tích nguyên vật liệu qua BOM explosion đa cấp:
+      - Nếu material là **bán thành phẩm** (có BOM riêng) → kiểm tra tồn kho → nếu thiếu → đi sâu thêm 1 level
+      - Nếu material là **nguyên liệu** (không có BOM) → tính GAP để đề xuất mua
     """)
     
     st.info("""
-    💡 **Tip:** Level 2 chỉ tính cho sản phẩm **Manufacturing** (có BOM) và **có shortage** ở Level 1. 
+    💡 **Tip:** Hệ thống hỗ trợ BOM nhiều cấp (A → B → C). Ví dụ: FG cần bán thành phẩm B, 
+    B cần nguyên liệu A. Nếu B đã có tồn kho đủ, hệ thống sẽ **không** tính tiếp nhu cầu A (supply netting).
     Sản phẩm Trading (không có BOM) sẽ được đề xuất tạo PO mua trực tiếp.
     """)
     
@@ -272,7 +275,8 @@ def _render_usage_guide():
     st.markdown("#### Bước 4: Chạy phân tích")
     st.markdown("""
     - Nhấn **🔬 Analyze** để chạy phân tích
-    - Hệ thống sẽ tính toán toàn bộ: FG GAP → Classification → Raw Material GAP → Actions
+    - Hệ thống sẽ tính toán toàn bộ: FG GAP → Classification → Multi-level Material GAP → Actions
+    - Quá trình BOM explosion đa cấp: tự động đi sâu qua các bán thành phẩm cho đến nguyên liệu cuối cùng
     - Kết quả hiển thị qua 5 tab bên dưới
     - Nhấn **🔄 Reset** để xóa bộ lọc và kết quả, bắt đầu lại
     """)
@@ -324,16 +328,24 @@ def _render_usage_guide():
     
     st.markdown("#### 🧪 Tab Raw Materials")
     st.markdown("""
-    Phân tích nguyên vật liệu cho sản phẩm Manufacturing có shortage:
+    Phân tích nguyên vật liệu đa cấp cho sản phẩm Manufacturing có shortage:
     
+    **🔶 Semi-Finished Products (Supply Netting)** — chỉ hiển thị khi có BOM đa cấp:
+    - Bán thành phẩm là material có BOM riêng (ví dụ: B trong A → B → C)
+    - Supply netting: Nếu tồn kho bán thành phẩm đủ → không cần tính tiếp BOM cấp dưới
+    - Cột "Netting": cho biết supply đủ (✅ Supply covers) hay thiếu (🔽 Shortage propagates)
+    
+    **🧪 Raw Materials (Leaf Nodes)** — nguyên liệu cuối cùng:
     - **Bar chart**: Phân bố trạng thái GAP của NVL
     - **Bộ lọc nhanh**:
-      - "Primary only": Chỉ xem NVL chính (không bao gồm NVL thay thế)
+      - "Primary only": Chỉ xem NVL chính
       - "Shortage only": Chỉ xem NVL đang thiếu
-    - **Bảng dữ liệu**: Required (nhu cầu mới từ BOM), Supply (nguồn cung NVL), GAP, Coverage
+      - "BOM Level": Lọc theo cấp BOM (nếu multi-level)
+    - **Bảng dữ liệu**: Required, Supply, GAP, Coverage, BOM Level
     
-    **Cột "Required" được tính từ BOM explosion:**
-    - Hệ thống lấy số lượng FG shortage → nhân với tỷ lệ NVL trong BOM → cộng thêm scrap rate
+    **Cột "Required" được tính từ BOM explosion đa cấp:**
+    - Hệ thống đi qua từng cấp BOM, trừ tồn kho bán thành phẩm tại mỗi cấp (supply netting)
+    - Chỉ nhu cầu thực sự (sau netting) được tính tiếp cho cấp dưới
     - Nếu bật "Existing MO": Cộng thêm nhu cầu từ MO đang pending chưa xuất kho
     """)
     
@@ -343,7 +355,7 @@ def _render_usage_guide():
     
     | Nhóm | Đối tượng | Hành động |
     |------|-----------|-----------|
-    | 🏭 **MO** | Sản phẩm Manufacturing | CREATE_MO (đủ NVL), WAIT_RAW (thiếu NVL), USE_ALTERNATIVE (có NVL thay thế) |
+    | 🏭 **MO** | Sản phẩm Manufacturing + Bán thành phẩm | CREATE_MO (đủ NVL), CREATE_MO_SEMI (bán thành phẩm), WAIT_RAW (thiếu NVL), USE_ALTERNATIVE (có NVL thay thế) |
     | 🛒 **PO-FG** | Sản phẩm Trading | CREATE_PO_FG (mua thành phẩm trực tiếp) |
     | 📦 **PO-Raw** | Nguyên vật liệu thiếu | CREATE_PO_RAW (mua NVL cho sản xuất) |
     
@@ -363,7 +375,8 @@ def _render_usage_guide():
     | **FG GAP** | Bảng chi tiết FG GAP toàn bộ sản phẩm |
     | **Manufacturing** | Sản phẩm Manufacturing có shortage + trạng thái sản xuất |
     | **Trading** | Sản phẩm Trading có shortage |
-    | **Raw Materials** | Bảng chi tiết NVL GAP |
+    | **Semi-Finished** | Bán thành phẩm + supply netting status (nếu BOM đa cấp) |
+    | **Raw Materials** | Bảng chi tiết NVL GAP + BOM Level |
     | **Actions** | Toàn bộ action recommendations |
     
     File Excel có thể dùng để: báo cáo cho management, chia sẻ với team mua hàng/sản xuất, 
@@ -511,11 +524,28 @@ def _render_glossary():
     | **Existing MO Demand** | Nhu cầu NVL từ các Manufacturing Order đang pending (chưa xuất kho) |
     """)
     
-    st.markdown("### 7. Loại nguyên vật liệu")
+    st.markdown("### 7. BOM đa cấp (Multi-Level BOM)")
+    st.markdown("""
+    | Thuật ngữ | Định nghĩa |
+    |-----------|------------|
+    | **Semi-Finished Product** 🔶 | Bán thành phẩm — material có BOM riêng, có thể tự sản xuất từ NVL cấp dưới |
+    | **Raw Material (Leaf)** 🧪 | Nguyên liệu cuối cùng — không có BOM, phải mua từ nhà cung cấp |
+    | **BOM Level** | Cấp trong cây BOM (Level 1 = material trực tiếp, Level 2 = material của bán thành phẩm, ...) |
+    | **Supply Netting** | Trừ tồn kho bán thành phẩm trước khi tính nhu cầu cấp dưới. Nếu tồn kho đủ → không cần sản xuất → không cần NVL cấp dưới |
+    | **BOM Path** | Đường đi trong cây BOM: FG → Semi-B → Raw-A. Dùng để phát hiện cycle (vòng lặp) |
+    | **Cumulative Qty** | Số lượng NVL cần cho 1 đơn vị FG gốc, tính compound qua tất cả cấp BOM |
+    """)
+    
+    st.info(f"""
+    💡 **Giới hạn BOM depth:** Tối đa {MAX_BOM_LEVELS} cấp. Cycle detection tự động ngăn vòng lặp vô hạn.
+    """)
+    
+    st.markdown("### 8. Phân loại vật liệu trong BOM")
     st.markdown("""
     | Loại | Icon | Mô tả |
     |------|------|-------|
-    | **Raw Material** | 🧪 | Nguyên liệu chính cho sản xuất |
+    | **Semi-Finished** | 🔶 | Bán thành phẩm — có BOM riêng, có thể sản xuất |
+    | **Raw Material** | 🧪 | Nguyên liệu chính cho sản xuất (leaf node) |
     | **Packaging** | 📦 | Vật liệu đóng gói |
     | **Consumable** | 🔧 | Vật tư tiêu hao |
     """)
@@ -523,11 +553,12 @@ def _render_glossary():
     # -------------------------------------------------------------------------
     # Action types
     # -------------------------------------------------------------------------
-    st.markdown("### 8. Loại hành động (Action Types)")
+    st.markdown("### 9. Loại hành động (Action Types)")
     st.markdown("""
     | Action | Icon | Điều kiện áp dụng | Mô tả chi tiết |
     |--------|------|-------------------|----------------|
     | **CREATE_MO** | 🏭 | Manufacturing + NVL đầy đủ | Tạo lệnh sản xuất (Manufacturing Order) để sản xuất FG từ NVL hiện có |
+    | **CREATE_MO_SEMI** | 🔶 | Bán thành phẩm bị shortage | Tạo MO để sản xuất bán thành phẩm (intermediate product) |
     | **WAIT_RAW** | ⏳ | Manufacturing + NVL chính thiếu, không có alternative | Chờ NVL về (từ PO đang chờ hoặc cần tạo PO mua NVL) |
     | **USE_ALTERNATIVE** | 🔄 | Manufacturing + NVL chính thiếu + có alternative đủ | Sử dụng NVL thay thế có sẵn để sản xuất |
     | **CREATE_PO_FG** | 🛒 | Trading product có shortage | Tạo Purchase Order mua thành phẩm trực tiếp từ NCC |
@@ -537,7 +568,7 @@ def _render_glossary():
     # -------------------------------------------------------------------------
     # Giải thích các cột trong bảng
     # -------------------------------------------------------------------------
-    st.markdown("### 9. Giải thích các cột dữ liệu")
+    st.markdown("### 10. Giải thích các cột dữ liệu")
     
     st.markdown("#### Bảng FG GAP")
     field_data = []
@@ -634,51 +665,65 @@ def _render_formulas():
     # -------------------------------------------------------------------------
     # Level 2: Raw Material GAP
     # -------------------------------------------------------------------------
-    st.markdown("### 🧪 Level 2: Raw Material GAP")
-    st.markdown("Phân tích NVL cho sản phẩm Manufacturing có shortage ở Level 1.")
+    st.markdown("### 🧪 Level 2+: Multi-Level Material GAP")
+    st.markdown("Phân tích NVL đa cấp cho sản phẩm Manufacturing có shortage ở Level 1.")
     
     st.code("""
     ┌─────────────────────────────────────────────────────────────────┐
-    │  BƯỚC 1: BOM Explosion — Tính nhu cầu NVL mới                 │
+    │  VÒNG LẶP ĐA CẤP (Level 1 → Level N, tối đa 10 cấp)         │
     │                                                                 │
-    │  fg_shortage = |net_gap| của FG product (số lượng cần sản xuất)│
+    │  Input: parent_shortage (FG shortage hoặc semi-finished gap)    │
     │                                                                 │
-    │  required_qty =  (fg_shortage / bom_output_quantity)            │
-    │                  × quantity_per_output                           │
-    │                  × (1 + scrap_rate / 100)                       │
-    ├─────────────────────────────────────────────────────────────────┤
-    │  BƯỚC 2: Tổng nhu cầu NVL                                     │
-    │  total_required_qty = required_qty + existing_mo_demand         │
-    │  * existing_mo_demand: NVL chưa xuất kho cho MO đang pending   │
-    ├─────────────────────────────────────────────────────────────────┤
-    │  BƯỚC 3: Tính GAP NVL                                         │
-    │  safety_gap      = total_supply - safety_stock_qty              │
-    │  available_supply = MAX(0, safety_gap)                          │
-    │  net_gap          = available_supply - total_required_qty       │
-    │  coverage_ratio   = available_supply / total_required_qty       │
-    ├─────────────────────────────────────────────────────────────────┤
-    │  BƯỚC 4: Phân tích NVL thay thế (nếu bật Alternatives)        │
-    │  Với mỗi NVL chính (is_primary=1) bị shortage:                 │
-    │    → Tìm NVL thay thế (is_primary=0, cùng primary_material_id)│
-    │    → can_cover = alt_net_gap >= |primary_net_gap|               │
+    │  FOR each BOM level:                                            │
+    │  ┌───────────────────────────────────────────────────────┐      │
+    │  │  BƯỚC A: BOM Explosion                                │      │
+    │  │  required_qty = (parent_shortage / bom_output_qty)    │      │
+    │  │                 × qty_per_output × (1 + scrap_rate%)  │      │
+    │  ├───────────────────────────────────────────────────────┤      │
+    │  │  BƯỚC B: Phân loại material                           │      │
+    │  │  - is_leaf = TRUE  → Raw Material (không có BOM)      │      │
+    │  │  - is_leaf = FALSE → Semi-Finished (có BOM riêng)     │      │
+    │  ├───────────────────────────────────────────────────────┤      │
+    │  │  BƯỚC C: Raw Materials → tích lũy demand              │      │
+    │  │  → Gom lại để tính GAP cuối cùng (1 lần)             │      │
+    │  ├───────────────────────────────────────────────────────┤      │
+    │  │  BƯỚC D: Semi-Finished → SUPPLY NETTING               │      │
+    │  │  available = MAX(0, total_supply - safety_stock)       │      │
+    │  │  net_gap = available - required_qty                    │      │
+    │  │                                                        │      │
+    │  │  IF net_gap >= 0 → ✅ Supply đủ, DỪNG (không đi sâu) │      │
+    │  │  IF net_gap < 0  → 🔽 Shortage |net_gap| propagate    │      │
+    │  │                      sang level tiếp theo              │      │
+    │  └───────────────────────────────────────────────────────┘      │
+    │  END FOR                                                        │
+    │                                                                 │
+    │  SAU VÒNG LẶP: Tính GAP cho tất cả Raw Materials tích lũy     │
+    │  total_required = required_qty + existing_mo_demand              │
+    │  net_gap = available_supply - total_required                     │
     └─────────────────────────────────────────────────────────────────┘
     """, language="text")
     
-    st.markdown("**Ví dụ minh họa:**")
+    st.markdown("**Ví dụ minh họa BOM đa cấp:**")
     st.markdown("""
-    Sản phẩm A (Manufacturing) shortage 300 đơn vị. BOM có:
-    - Output quantity: 100 (mỗi batch sản xuất ra 100 FG)
-    - NVL "X": quantity_per_output = 2, scrap_rate = 5%
+    Sản phẩm C (Manufacturing) shortage **200 đơn vị**. BOM chuỗi: A → B → C
     
-    Tính required_qty cho NVL X:
-    - required_qty = (300 / 100) × 2 × (1 + 5/100) = 3 × 2 × 1.05 = **6.3**
+    **Level 1:** BOM C cần 200 pcs bán thành phẩm B + 10 kg Packaging D
+    - Semi-Finished B: tồn kho = 50 → available = 50, required = 200
+      - net_gap = 50 - 200 = **-150** → shortage → propagate 150 sang level 2
+    - Packaging D (leaf): tích lũy demand = 10 kg
     
-    Nếu NVL X đang có MO pending cần thêm 10 đơn vị:
-    - total_required_qty = 6.3 + 10 = **16.3**
+    **Level 2:** BOM B cần nguyên liệu A (chỉ cho **150 pcs**, không phải 200!)
+    - BOM B: output_qty = 50, qty_per_output = 5 kg A, scrap_rate = 2%
+    - required_qty = (150 / 50) × 5 × 1.02 = **15.3 kg**
+    - Raw A (leaf): tích lũy demand = 15.3 kg
     
-    Nếu NVL X có supply = 20, safety stock = 5:
-    - available_supply = MAX(0, 20 - 5) = **15**
-    - net_gap = 15 - 16.3 = **-1.3** (shortage 1.3 đơn vị NVL)
+    **Kết quả cuối cùng:**
+    - raw_gap_df = [Packaging D: demand 10 kg, Raw A: demand 15.3 kg] + existing MO + supply → GAP
+    - semi_finished_gap_df = [Semi-Finished B at level 1: gap = -150]
+    
+    **So sánh nếu KHÔNG có supply netting:**
+    - Nhu cầu Raw A = (200/50) × 5 × 1.02 = 20.4 kg (tính cho cả 200, bỏ qua tồn kho B = 50)
+    - Sai lệch: 20.4 vs 15.3 kg = thừa 5.1 kg → mua NVL không cần thiết!
     """)
     
     st.divider()
@@ -733,6 +778,10 @@ def _render_formulas():
     │  │                                                              │
     │  └── Trading (has_bom = 0)?                                     │
     │      └── 🛒 Action: CREATE_PO_FG                               │
+    │                                                                 │
+    │  Semi-Finished shortage (multi-level BOM):                      │
+    │  └── Bán thành phẩm bị shortage sau supply netting              │
+    │      └── 🔶 Action: CREATE_MO_SEMI (sản xuất bán thành phẩm)  │
     └─────────────────────────────────────────────────────────────────┘
     """, language="text")
     
@@ -823,7 +872,8 @@ def _render_faq():
         | `unified_demand_view` | Tổng hợp OC pending, forecast |
         | `safety_stock_current_view` | Safety stock hiện hành |
         | `product_classification_view` | Phân loại Manufacturing / Trading |
-        | `bom_explosion_view` | Chi tiết BOM và NVL |
+        | `bom_explosion_view` | Chi tiết BOM và NVL (single-level, dùng cho tính toán) |
+        | `bom_full_explosion_view` | BOM đa cấp recursive (dùng cho hiển thị & export) |
         | `manufacturing_raw_demand_view` | Nhu cầu NVL từ MO pending |
         | `raw_material_supply_summary_view` | Tổng hợp supply NVL |
         
@@ -878,6 +928,36 @@ def _render_faq():
         **Khi nào tắt?**
         - Khi MO pending đã quá hạn và có thể bị hủy
         - Khi muốn đánh giá supply NVL thuần túy (không tính commitment)
+        """)
+    
+    with st.expander("**Q8b: BOM đa cấp (multi-level) hoạt động thế nào?**"):
+        st.markdown("""
+        Khi sản phẩm có quy trình sản xuất nhiều công đoạn (VD: A → B → C), hệ thống tự động 
+        phân tích từng cấp:
+        
+        **Ví dụ:** FG Product C cần bán thành phẩm B, B cần nguyên liệu A.
+        
+        1. **Level 1:** FG C shortage → cần bán thành phẩm B
+        2. **Supply Netting:** Kiểm tra tồn kho B
+           - Nếu B đủ → DỪNG, không cần sản xuất B → không cần NVL A
+           - Nếu B thiếu → tính net shortage B (trừ phần tồn kho đã có)
+        3. **Level 2:** Net shortage B → BOM B → cần nguyên liệu A (chỉ cho phần thiếu!)
+        
+        **Ưu điểm supply netting:** Tránh đặt mua NVL thừa. Nếu tồn kho bán thành phẩm 
+        đã có sẵn, hệ thống sẽ tận dụng trước khi tính nhu cầu NVL cấp dưới.
+        """)
+    
+    with st.expander("**Q8c: Semi-Finished hiển thị 'Shortage propagates' — nghĩa là gì?**"):
+        st.markdown("""
+        Trong bảng Semi-Finished Products, cột **Netting** cho biết:
+        
+        - **✅ Supply covers:** Tồn kho bán thành phẩm đủ cho nhu cầu → không cần đi sâu thêm BOM
+        - **🔽 Shortage propagates:** Tồn kho không đủ → phần thiếu được truyền xuống cấp BOM tiếp theo
+        
+        **Hành động khi thấy "Shortage propagates":**
+        1. Kiểm tra tab Actions → sẽ có **CREATE_MO_SEMI** cho bán thành phẩm này
+        2. Kiểm tra NVL cấp dưới (Raw Materials) → đảm bảo NVL đủ để sản xuất bán thành phẩm
+        3. Nếu NVL cũng thiếu → sẽ có thêm **CREATE_PO_RAW**
         """)
     
     # -------------------------------------------------------------------------
