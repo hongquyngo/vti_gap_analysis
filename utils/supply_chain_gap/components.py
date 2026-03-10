@@ -258,18 +258,18 @@ def _get_column_config_fg() -> Dict[str, Any]:
         'product_name': st.column_config.TextColumn('Product', width='medium'),
         'brand': st.column_config.TextColumn('Brand', width='small'),
         'standard_uom': st.column_config.TextColumn('UOM', width='small'),
-        'total_supply': st.column_config.NumberColumn('Supply', format='%,.0f'),
-        'total_demand': st.column_config.NumberColumn('Demand', format='%,.0f'),
-        'net_gap': st.column_config.NumberColumn('GAP', format='%,.0f'),
+        'total_supply': st.column_config.NumberColumn('Supply', format="%.0f"),
+        'total_demand': st.column_config.NumberColumn('Demand', format="%.0f"),
+        'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
         'coverage_pct': st.column_config.ProgressColumn(
             'Coverage',
-            format='%.0f%%',
+            format="%.0f%%",
             min_value=0,
             max_value=200
         ),
         'gap_status_display': st.column_config.TextColumn('Status', width='medium'),
-        'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format='$%,.0f'),
-        'customer_count': st.column_config.NumberColumn('Customers', format='%d'),
+        'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %.0f"),
+        'customer_count': st.column_config.NumberColumn('Customers', format="%d"),
     }
 
 
@@ -308,7 +308,7 @@ def render_fg_table(
     if 'coverage_ratio' in page_df.columns:
         page_df['coverage_pct'] = (
             pd.to_numeric(page_df['coverage_ratio'], errors='coerce').fillna(0) * 100
-        ).clip(0, 200)
+        ).clip(0, 200).round(0)
     else:
         page_df['coverage_pct'] = 0
     
@@ -320,10 +320,12 @@ def render_fg_table(
     else:
         page_df['gap_status_display'] = ''
     
-    # Ensure numeric columns
-    for col in ['total_supply', 'total_demand', 'net_gap', 'at_risk_value']:
+    # Ensure numeric columns — round to remove float precision artifacts
+    for col in ['total_supply', 'total_demand', 'net_gap']:
         if col in page_df.columns:
-            page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0)
+            page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0).round(0)
+    if 'at_risk_value' in page_df.columns:
+        page_df['at_risk_value'] = pd.to_numeric(page_df['at_risk_value'], errors='coerce').fillna(0).round(0)
     
     available_cols = [c for c in display_cols if c in page_df.columns]
     
@@ -378,7 +380,7 @@ def render_manufacturing_table(
         display_data.append({
             'pt_code': row.get('pt_code', ''),
             'product_name': str(row.get('product_name', ''))[:40],
-            'net_gap': float(row.get('net_gap', 0)),
+            'net_gap': round(float(row.get('net_gap', 0)), 0),
             'can_produce': '✅ Yes' if can_produce else '❌ No',
             'production_status': status.get('status', 'UNKNOWN'),
             'reason': status.get('reason', '')[:50],
@@ -392,7 +394,7 @@ def render_manufacturing_table(
         column_config={
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Product', width='medium'),
-            'net_gap': st.column_config.NumberColumn('GAP', format='%,.0f'),
+            'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
             'can_produce': st.column_config.TextColumn('Can Produce', width='small'),
             'production_status': st.column_config.TextColumn('Status', width='small'),
             'reason': st.column_config.TextColumn('Reason', width='medium'),
@@ -436,8 +438,8 @@ def render_trading_table(
     page_df = trading_shortage.iloc[start_idx:end_idx].copy()
     
     # Keep numeric, add display columns
-    page_df['at_risk_value'] = pd.to_numeric(page_df.get('at_risk_value', 0), errors='coerce').fillna(0)
-    page_df['net_gap'] = pd.to_numeric(page_df.get('net_gap', 0), errors='coerce').fillna(0)
+    page_df['at_risk_value'] = pd.to_numeric(page_df.get('at_risk_value', 0), errors='coerce').fillna(0).round(0)
+    page_df['net_gap'] = pd.to_numeric(page_df.get('net_gap', 0), errors='coerce').fillna(0).round(0)
     page_df['action'] = '🛒 Create PO'
     
     display_cols = ['pt_code', 'product_name', 'brand', 'net_gap', 'at_risk_value', 'action']
@@ -449,8 +451,8 @@ def render_trading_table(
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Product', width='medium'),
             'brand': st.column_config.TextColumn('Brand', width='small'),
-            'net_gap': st.column_config.NumberColumn('GAP', format='%,.0f'),
-            'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format='$%,.0f'),
+            'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
+            'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %.0f"),
             'action': st.column_config.TextColumn('Action', width='small'),
         },
         use_container_width=True,
@@ -507,16 +509,16 @@ def render_raw_material_table(
     
     page_df = raw_df.iloc[start_idx:end_idx].copy()
     
-    # Ensure numeric types
+    # Ensure numeric types — round to remove float precision artifacts
     for col in ['total_required_qty', 'total_supply', 'net_gap', 'safety_stock_qty']:
         if col in page_df.columns:
-            page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0)
+            page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0).round(0)
     
     # Coverage percentage
     if 'coverage_ratio' in page_df.columns:
         page_df['coverage_pct'] = (
             pd.to_numeric(page_df['coverage_ratio'], errors='coerce').fillna(0) * 100
-        ).clip(0, 200)
+        ).clip(0, 200).round(0)
     else:
         page_df['coverage_pct'] = 0
     
@@ -532,11 +534,11 @@ def render_raw_material_table(
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
             'material_name': st.column_config.TextColumn('Material', width='medium'),
             'material_type': st.column_config.TextColumn('Type', width='small'),
-            'total_required_qty': st.column_config.NumberColumn('Required', format='%,.0f'),
-            'total_supply': st.column_config.NumberColumn('Supply', format='%,.0f'),
-            'net_gap': st.column_config.NumberColumn('GAP', format='%,.0f'),
+            'total_required_qty': st.column_config.NumberColumn('Required', format="%.0f"),
+            'total_supply': st.column_config.NumberColumn('Supply', format="%.0f"),
+            'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
             'coverage_pct': st.column_config.ProgressColumn(
-                'Coverage', format='%.0f%%', min_value=0, max_value=200
+                'Coverage', format="%.0f%%", min_value=0, max_value=200
             ),
         },
         use_container_width=True,
@@ -591,7 +593,7 @@ def render_action_table(
             'action_display': f"{icon} {label}",
             'pt_code': action.get('pt_code', ''),
             'product_name': str(action.get('product_name', ''))[:40],
-            'quantity': float(action.get('quantity', 0)),
+            'quantity': round(float(action.get('quantity', 0)), 0),
             'uom': action.get('uom', ''),
             'priority': int(action.get('priority', 99)),
             'reason': str(action.get('reason', ''))[:50]
@@ -614,9 +616,9 @@ def render_action_table(
             'action_display': st.column_config.TextColumn('Action', width='medium'),
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Name', width='medium'),
-            'quantity': st.column_config.NumberColumn('Qty', format='%,.0f'),
+            'quantity': st.column_config.NumberColumn('Qty', format="%.0f"),
             'uom': st.column_config.TextColumn('UOM', width='small'),
-            'priority': st.column_config.NumberColumn('Priority', format='%d'),
+            'priority': st.column_config.NumberColumn('Priority', format="%d"),
             'reason': st.column_config.TextColumn('Reason', width='medium'),
         },
         use_container_width=True,
@@ -839,10 +841,10 @@ def _render_drilldown_manufacturing(
             'material_pt_code': mat.get('material_pt_code', ''),
             'material_name': str(mat.get('material_name', ''))[:35],
             'type_label': '🔵 Primary' if is_primary else '🔄 Alt',
-            'quantity_per_output': float(mat.get('quantity_per_output', 0) or 0),
-            'scrap_rate': float(mat.get('scrap_rate', 0) or 0),
-            'total_supply': float(mat.get('total_supply', 0)) if pd.notna(mat.get('total_supply')) else 0,
-            'net_gap': float(mat_gap) if pd.notna(mat_gap) else None,
+            'quantity_per_output': round(float(mat.get('quantity_per_output', 0) or 0), 2),
+            'scrap_rate': round(float(mat.get('scrap_rate', 0) or 0), 1),
+            'total_supply': round(float(mat.get('total_supply', 0)) if pd.notna(mat.get('total_supply')) else 0, 0),
+            'net_gap': round(float(mat_gap), 0) if pd.notna(mat_gap) else None,
             'status_icon': '✅' if (pd.notna(mat_gap) and mat_gap >= 0) else ('🔴' if pd.notna(mat_gap) else '❓')
         })
     
@@ -854,10 +856,10 @@ def _render_drilldown_manufacturing(
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
             'material_name': st.column_config.TextColumn('Material', width='medium'),
             'type_label': st.column_config.TextColumn('Type', width='small'),
-            'quantity_per_output': st.column_config.NumberColumn('Qty/Output', format='%.2f'),
-            'scrap_rate': st.column_config.NumberColumn('Scrap %', format='%.1f%%'),
-            'total_supply': st.column_config.NumberColumn('Supply', format='%,.0f'),
-            'net_gap': st.column_config.NumberColumn('GAP', format='%,.0f'),
+            'quantity_per_output': st.column_config.NumberColumn('Qty/Output', format="%.2f"),
+            'scrap_rate': st.column_config.NumberColumn('Scrap %', format="%.1f%%"),
+            'total_supply': st.column_config.NumberColumn('Supply', format="%.0f"),
+            'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
             'status_icon': st.column_config.TextColumn('', width='small'),
         },
         use_container_width=True,
