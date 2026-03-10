@@ -576,11 +576,17 @@ def render_raw_material_table(
         return {}
     
     # Filter options
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         show_primary_only = st.checkbox("Primary only", value=False, key="raw_primary_only")
     with col2:
         show_shortage_only = st.checkbox("Shortage only", value=False, key="raw_shortage_only")
+    with col3:
+        if 'bom_level' in raw_df.columns and raw_df['bom_level'].nunique() > 1:
+            level_options = ['All'] + sorted(raw_df['bom_level'].unique().tolist())
+            level_filter = st.selectbox("BOM Level", level_options, key="raw_level_filter")
+            if level_filter != 'All':
+                raw_df = raw_df[raw_df['bom_level'] == level_filter]
     
     if show_primary_only and 'is_primary' in raw_df.columns:
         raw_df = raw_df[raw_df['is_primary'].isin([1, True])]
@@ -603,7 +609,7 @@ def render_raw_material_table(
     
     page_df = raw_df.iloc[start_idx:end_idx].copy()
     
-    # Ensure numeric types — round to remove float precision artifacts
+    # Ensure numeric types
     for col in ['total_required_qty', 'total_supply', 'net_gap', 'safety_stock_qty']:
         if col in page_df.columns:
             page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0).round(0)
@@ -616,28 +622,100 @@ def render_raw_material_table(
     else:
         page_df['coverage_pct'] = 0
     
-    display_cols = [
-        'material_pt_code', 'material_name', 'material_type',
-        'total_required_qty', 'total_supply', 'net_gap', 'coverage_pct'
-    ]
+    # Build display columns (add bom_level if multi-level)
+    display_cols = ['material_pt_code', 'material_name', 'material_type']
+    col_config = {
+        'material_pt_code': st.column_config.TextColumn('Code', width='small'),
+        'material_name': st.column_config.TextColumn('Material', width='medium'),
+        'material_type': st.column_config.TextColumn('Type', width='small'),
+    }
+    
+    if 'bom_level' in page_df.columns and page_df['bom_level'].nunique() > 1:
+        display_cols.append('bom_level')
+        col_config['bom_level'] = st.column_config.NumberColumn('Level', format="%d", width='small')
+    
+    display_cols += ['total_required_qty', 'total_supply', 'net_gap', 'coverage_pct']
+    col_config.update({
+        'total_required_qty': st.column_config.NumberColumn('Required', format="%.0f"),
+        'total_supply': st.column_config.NumberColumn('Supply', format="%.0f"),
+        'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
+        'coverage_pct': st.column_config.ProgressColumn(
+            'Coverage', format="%.0f%%", min_value=0, max_value=200
+        ),
+    })
+    
     available = [c for c in display_cols if c in page_df.columns]
+    
+    st.dataframe(
+        page_df[available],
+        column_config=col_config,
+        width='stretch',
+        hide_index=True,
+        height=min(400, 35 * len(page_df) + 38)
+    )
+    
+    return {
+        'page': current_page,
+        'total_pages': total_pages,
+        'total_items': total_items,
+        'showing': f"{start_idx + 1}-{end_idx} of {total_items}"
+    }
+
+
+def render_semi_finished_table(
+    result: SupplyChainGAPResult,
+    items_per_page: int = 25,
+    current_page: int = 1
+) -> Dict[str, Any]:
+    """Render semi-finished material GAP table with supply netting details"""
+    
+    semi_df = result.semi_finished_gap_df.copy()
+    
+    if semi_df.empty:
+        st.info("🔶 No semi-finished materials (all BOMs are single-level)")
+        return {}
+    
+    st.markdown(f"**{len(semi_df)} Semi-Finished Materials**")
+    
+    # Pagination
+    total_items = len(semi_df)
+    total_pages = max(1, (total_items + items_per_page - 1) // items_per_page)
+    current_page = min(max(1, current_page), total_pages)
+    start_idx = (current_page - 1) * items_per_page
+    end_idx = min(start_idx + items_per_page, total_items)
+    
+    page_df = semi_df.iloc[start_idx:end_idx].copy()
+    
+    # Ensure numeric types
+    for col in ['required_qty', 'total_supply', 'net_gap']:
+        if col in page_df.columns:
+            page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0).round(0)
+    
+    display_cols = ['material_pt_code', 'material_name', 'bom_level',
+                    'required_qty', 'total_supply', 'net_gap']
+    available = [c for c in display_cols if c in page_df.columns]
+    
+    # Add netting status
+    if 'net_gap' in page_df.columns:
+        page_df['netting_status'] = page_df['net_gap'].apply(
+            lambda x: '✅ Supply covers' if x >= 0 else '🔽 Shortage propagates'
+        )
+        available.append('netting_status')
     
     st.dataframe(
         page_df[available],
         column_config={
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
-            'material_name': st.column_config.TextColumn('Material', width='medium'),
-            'material_type': st.column_config.TextColumn('Type', width='small'),
-            'total_required_qty': st.column_config.NumberColumn('Required', format="%.0f"),
+            'material_name': st.column_config.TextColumn('Semi-Finished Product', width='medium'),
+            'bom_level': st.column_config.NumberColumn('Level', format="%d", width='small'),
+            'required_qty': st.column_config.NumberColumn('Required', format="%.0f"),
             'total_supply': st.column_config.NumberColumn('Supply', format="%.0f"),
             'net_gap': st.column_config.NumberColumn('GAP', format="%.0f"),
-            'coverage_pct': st.column_config.ProgressColumn(
-                'Coverage', format="%.0f%%", min_value=0, max_value=200
-            ),
+            'netting_status': st.column_config.TextColumn('Netting', width='medium'),
         },
         width='stretch',
         hide_index=True,
-        height=min(400, 35 * len(page_df) + 38)
+        height=min(300, 35 * len(page_df) + 38)
     )
     
     return {

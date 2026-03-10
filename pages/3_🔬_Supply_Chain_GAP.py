@@ -49,6 +49,7 @@ from utils.supply_chain_gap import (
     render_manufacturing_table,
     render_trading_table,
     render_raw_material_table,
+    render_semi_finished_table,
     render_action_table,
     render_pagination,
     render_product_drilldown,
@@ -357,6 +358,8 @@ def main():
         st.subheader("🧪 Raw Material GAP")
         
         if result.has_raw_data():
+            metrics = result.get_metrics()
+            
             col1, col2 = st.columns(2)
             with col1:
                 fig = charts.create_raw_material_status(result.raw_gap_df)
@@ -364,10 +367,29 @@ def main():
             
             with col2:
                 raw_metrics = result.raw_metrics
-                st.metric("Total Materials", raw_metrics.get('total_materials', 0))
+                st.metric("Total Raw Materials", raw_metrics.get('total_materials', 0))
                 st.metric("With Shortage", raw_metrics.get('shortage_count', 0))
                 st.metric("Sufficient", raw_metrics.get('sufficient_count', 0))
+                
+                # Multi-level info
+                max_depth = metrics.get('max_bom_depth', 1)
+                semi_count = metrics.get('semi_finished_total', 0)
+                if max_depth > 1 or semi_count > 0:
+                    st.metric("BOM Depth", f"{max_depth} levels")
+                    st.metric("Semi-Finished", semi_count)
             
+            # Semi-finished section (only if multi-level)
+            if result.has_semi_finished_data():
+                st.markdown("#### 🔶 Semi-Finished Products (Supply Netting)")
+                st.caption(
+                    "Semi-finished products have their own BOMs. "
+                    "Supply netting: if inventory covers demand, no further BOM explosion needed."
+                )
+                render_semi_finished_table(result, items_per_page=25, current_page=1)
+                st.divider()
+            
+            # Raw materials table
+            st.markdown("#### 🧪 Raw Materials (Leaf Nodes)")
             page_info = render_raw_material_table(result, items_per_page=25, current_page=state.get_page('raw'))
             if page_info and page_info.get('total_pages', 1) > 1:
                 new_page = render_pagination(page_info['page'], page_info['total_pages'], "raw")

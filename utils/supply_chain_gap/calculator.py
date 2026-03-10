@@ -4,12 +4,10 @@
 Calculator for Supply Chain GAP Analysis
 Performs full multi-level GAP calculation: FG + Raw Materials
 
-VERSION: 1.1.0
+VERSION: 2.0.0
 CHANGELOG:
-- Fixed At Risk Value calculation: Use total_value_usd instead of selling_unit_price
-- Fixed is_primary comparison: Use 1/0 instead of True/False for SQL compatibility
-- Added avg_unit_price_usd calculation for proper USD pricing
-- Improved error handling and null checks
+- v2.0: Multi-level BOM support with supply netting at intermediate levels
+- v1.1: Fixed At Risk Value, is_primary comparison, avg_unit_price_usd
 """
 
 import pandas as pd
@@ -18,7 +16,7 @@ import logging
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
-from .constants import THRESHOLDS, STATUS_CONFIG, ACTION_TYPES
+from .constants import THRESHOLDS, STATUS_CONFIG, ACTION_TYPES, MAX_BOM_LEVELS
 from .result import SupplyChainGAPResult, CustomerImpact, ActionRecommendation
 
 logger = logging.getLogger(__name__)
@@ -122,48 +120,46 @@ class SupplyChainGAPCalculator:
             logger.info(f"Classification: {len(result.manufacturing_df)} MFG, {len(result.trading_df)} Trading")
         
         # =====================================================================
-        # LEVEL 2: RAW MATERIAL GAP (for manufacturing products with shortage)
+        # MULTI-LEVEL MATERIAL GAP (for manufacturing products with shortage)
+        # =====================================================================
+        # Replaces old single-level "Level 2" approach.
+        # Iterates BOM levels: FG → Semi-Finished → ... → Raw Material
+        # Supply netting at each intermediate level determines actual demand propagation.
         # =====================================================================
         if (bom_explosion_df is not None and not bom_explosion_df.empty and
             raw_supply_df is not None and not raw_supply_df.empty):
             
-            logger.info("Level 2: Calculating Raw Material GAP...")
+            logger.info("Multi-level: Calculating Material GAP (all BOM levels)...")
             
-            # Get manufacturing products with shortage
             mfg_shortage = result.get_manufacturing_shortage()
             
             if not mfg_shortage.empty:
-                mfg_product_ids = mfg_shortage['product_id'].tolist()
-                
-                # Filter BOM for shortage products
-                id_col = 'output_product_id' if 'output_product_id' in bom_explosion_df.columns else 'fg_product_id'
-                filtered_bom = bom_explosion_df[bom_explosion_df[id_col].isin(mfg_product_ids)].copy()
-                
-                result.bom_explosion_df = filtered_bom
-                
-                # Calculate raw material demand from BOM explosion
-                raw_demand_df = self._calculate_raw_demand(
-                    fg_shortage_df=mfg_shortage,
-                    bom_explosion_df=filtered_bom,
-                    existing_mo_demand_df=existing_mo_demand_df if include_existing_mo else None
-                )
-                result.raw_demand_df = raw_demand_df
-                
-                # Calculate raw material GAP
-                raw_gap_df, raw_metrics, alt_analysis = self._calculate_raw_gap(
-                    raw_demand_df=raw_demand_df,
-                    raw_supply_df=raw_supply_df,
-                    raw_safety_stock_df=raw_safety_stock_df if include_raw_safety else None,
-                    include_alternatives=include_alternatives,
-                    selected_supply_sources=selected_supply_sources
-                )
-                
+                result.bom_explosion_df = bom_explosion_df
                 result.raw_supply_df = raw_supply_df
+                
+                raw_gap_df, semi_gap_df, raw_metrics, alt_analysis, max_depth = \
+                    self._calculate_multilevel_material_gap(
+                        mfg_shortage_df=mfg_shortage,
+                        bom_explosion_df=bom_explosion_df,
+                        existing_mo_demand_df=existing_mo_demand_df if include_existing_mo else None,
+                        raw_supply_df=raw_supply_df,
+                        raw_safety_stock_df=raw_safety_stock_df if include_raw_safety else None,
+                        include_alternatives=include_alternatives,
+                        selected_supply_sources=selected_supply_sources
+                    )
+                
                 result.raw_gap_df = raw_gap_df
+                result.semi_finished_gap_df = semi_gap_df
                 result.raw_metrics = raw_metrics
                 result.alternative_analysis_df = alt_analysis
+                result.max_bom_depth = max_depth
                 
-                logger.info(f"Raw GAP: {len(raw_gap_df)} materials, {raw_metrics.get('shortage_count', 0)} shortages")
+                logger.info(
+                    f"Material GAP: {len(raw_gap_df)} raw materials, "
+                    f"{len(semi_gap_df)} semi-finished, "
+                    f"max depth={max_depth}, "
+                    f"{raw_metrics.get('shortage_count', 0)} raw shortages"
+                )
         
         # =====================================================================
         # ACTION RECOMMENDATIONS
@@ -759,6 +755,414 @@ class SupplyChainGAPCalculator:
         return pd.DataFrame(results) if results else pd.DataFrame()
     
     # =========================================================================
+    # MULTI-LEVEL MATERIAL GAP (iterative BOM explosion with supply netting)
+    # =========================================================================
+    
+    def _calculate_multilevel_material_gap(
+        self,
+        mfg_shortage_df: pd.DataFrame,
+        bom_explosion_df: pd.DataFrame,
+        existing_mo_demand_df: Optional[pd.DataFrame],
+        raw_supply_df: pd.DataFrame,
+        raw_safety_stock_df: Optional[pd.DataFrame],
+        include_alternatives: bool,
+        selected_supply_sources: Optional[List[str]]
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any], pd.DataFrame, int]:
+        """
+        Multi-level material GAP with supply netting at intermediate levels.
+        
+        Algorithm:
+        1. Start with FG manufacturing shortage as demand drivers
+        2. For each BOM level:
+           a. Explode BOM: parent shortage × BOM → material demand
+           b. Classify materials: leaf (raw) vs semi-finished (has own BOM)
+           c. Leaf materials: accumulate demand for final GAP calculation
+           d. Semi-finished: calculate immediate GAP with supply netting
+              - If shortage: net shortage propagates to next level
+              - If sufficient: no further propagation (supply covers demand)
+        3. After all levels: calculate final raw material GAP (aggregated leaf demand)
+        4. Return combined results
+        
+        Returns:
+            (raw_gap_df, semi_finished_gap_df, raw_metrics, alt_analysis, max_depth)
+        """
+        
+        id_col = 'output_product_id' if 'output_product_id' in bom_explosion_df.columns else 'fg_product_id'
+        
+        # Determine which materials have their own BOM (semi-finished)
+        products_with_bom = set(bom_explosion_df[id_col].unique())
+        
+        # Pre-process supply data for quick lookup
+        supply_by_material = self._prepare_supply_lookup(
+            raw_supply_df, selected_supply_sources
+        )
+        
+        # Pre-process safety stock for quick lookup
+        safety_by_material = {}
+        if raw_safety_stock_df is not None and not raw_safety_stock_df.empty:
+            safety_id = 'material_id' if 'material_id' in raw_safety_stock_df.columns else 'product_id'
+            for _, row in raw_safety_stock_df.iterrows():
+                safety_by_material[row[safety_id]] = row.get('safety_stock_qty', 0) or 0
+        
+        # Iteration state
+        leaf_demand_parts = []       # Raw material demand accumulated across all levels
+        semi_finished_gaps = []      # GAP results for semi-finished materials
+        max_depth = 0
+        
+        current_shortage = mfg_shortage_df[['product_id', 'net_gap']].copy()
+        current_shortage['net_gap'] = current_shortage['net_gap'].abs()  # work with positive qty
+        
+        for level in range(1, MAX_BOM_LEVELS + 1):
+            if current_shortage.empty:
+                break
+            
+            max_depth = level
+            logger.info(f"  Level {level}: {len(current_shortage)} parent products with shortage")
+            
+            # --- Step A: Explode BOM for current shortage products ---
+            shortage_ids = current_shortage['product_id'].tolist()
+            level_bom = bom_explosion_df[bom_explosion_df[id_col].isin(shortage_ids)].copy()
+            
+            if level_bom.empty:
+                logger.info(f"  Level {level}: No BOM found for shortage products")
+                break
+            
+            # --- Step B: Calculate demand per material ---
+            level_demand = self._calculate_level_demand(
+                parent_shortage_df=current_shortage,
+                bom_df=level_bom,
+                id_col=id_col
+            )
+            
+            if level_demand.empty:
+                break
+            
+            # --- Step C: Tag leaf vs semi-finished ---
+            level_demand['is_leaf'] = ~level_demand['material_id'].isin(products_with_bom)
+            level_demand['bom_level'] = level
+            level_demand['material_category'] = np.where(
+                level_demand['is_leaf'], 'RAW_MATERIAL', 'SEMI_FINISHED'
+            )
+            
+            leaf_materials = level_demand[level_demand['is_leaf']].copy()
+            semi_materials = level_demand[~level_demand['is_leaf']].copy()
+            
+            # --- Step D: Accumulate leaf demand ---
+            if not leaf_materials.empty:
+                leaf_demand_parts.append(leaf_materials)
+                logger.info(f"  Level {level}: {len(leaf_materials)} leaf (raw) materials")
+            
+            # --- Step E: Semi-finished → immediate GAP with supply netting ---
+            next_shortage_rows = []
+            
+            if not semi_materials.empty:
+                logger.info(f"  Level {level}: {len(semi_materials)} semi-finished materials")
+                
+                semi_gap = self._calculate_material_gap_core(
+                    demand_df=semi_materials,
+                    supply_lookup=supply_by_material,
+                    safety_lookup=safety_by_material,
+                    bom_level=level,
+                    material_category='SEMI_FINISHED'
+                )
+                semi_finished_gaps.append(semi_gap)
+                
+                # Propagate: semi-finished with net shortage → next level
+                semi_with_shortage = semi_gap[semi_gap['net_gap'] < 0].copy()
+                if not semi_with_shortage.empty:
+                    next_shortage = semi_with_shortage[['material_id', 'net_gap']].copy()
+                    next_shortage.rename(columns={'material_id': 'product_id'}, inplace=True)
+                    next_shortage['net_gap'] = next_shortage['net_gap'].abs()
+                    next_shortage_rows.append(next_shortage)
+            
+            if not next_shortage_rows:
+                break
+            
+            current_shortage = pd.concat(next_shortage_rows, ignore_index=True)
+        
+        # =====================================================================
+        # FINAL: Calculate raw material GAP (all leaf demand aggregated)
+        # =====================================================================
+        raw_gap_df = pd.DataFrame()
+        alt_analysis = pd.DataFrame()
+        
+        if leaf_demand_parts:
+            all_leaf_demand = pd.concat(leaf_demand_parts, ignore_index=True)
+            
+            # Aggregate by material_id (same raw material from multiple BOM paths/levels)
+            raw_demand_agg = self._aggregate_leaf_demand(all_leaf_demand, id_col)
+            
+            # Add existing MO demand (once, for all raw materials)
+            raw_demand_agg = self._add_existing_mo_demand(raw_demand_agg, existing_mo_demand_df)
+            
+            # Calculate final GAP
+            raw_gap_df = self._calculate_material_gap_core(
+                demand_df=raw_demand_agg,
+                supply_lookup=supply_by_material,
+                safety_lookup=safety_by_material,
+                bom_level=0,  # 0 = aggregated across levels
+                material_category='RAW_MATERIAL'
+            )
+            # Restore actual min bom_level from accumulated demand
+            if 'min_bom_level' in raw_demand_agg.columns:
+                level_map = raw_demand_agg.set_index('material_id')['min_bom_level']
+                raw_gap_df['bom_level'] = raw_gap_df['material_id'].map(level_map).fillna(1).astype(int)
+            
+            # Alternative analysis
+            if include_alternatives and 'is_primary' in raw_gap_df.columns:
+                alt_analysis = self._analyze_alternatives(raw_gap_df)
+        
+        # Build semi-finished combined df
+        semi_gap_df = pd.DataFrame()
+        if semi_finished_gaps:
+            semi_gap_df = pd.concat(semi_finished_gaps, ignore_index=True)
+        
+        # Metrics
+        raw_metrics = {
+            'total_materials': len(raw_gap_df),
+            'shortage_count': len(raw_gap_df[raw_gap_df['net_gap'] < 0]) if not raw_gap_df.empty else 0,
+            'sufficient_count': len(raw_gap_df[raw_gap_df['net_gap'] >= 0]) if not raw_gap_df.empty else 0,
+            'semi_finished_count': len(semi_gap_df),
+            'semi_finished_shortage': len(semi_gap_df[semi_gap_df['net_gap'] < 0]) if not semi_gap_df.empty else 0,
+            'max_bom_depth': max_depth,
+        }
+        if not alt_analysis.empty and 'can_cover_shortage' in alt_analysis.columns:
+            raw_metrics['alternative_available'] = len(alt_analysis[alt_analysis['can_cover_shortage'] == True])
+        else:
+            raw_metrics['alternative_available'] = 0
+        
+        logger.info(
+            f"  Multi-level complete: {max_depth} levels, "
+            f"{raw_metrics['total_materials']} raw, "
+            f"{raw_metrics['semi_finished_count']} semi-finished"
+        )
+        
+        return raw_gap_df, semi_gap_df, raw_metrics, alt_analysis, max_depth
+    
+    def _prepare_supply_lookup(
+        self,
+        raw_supply_df: pd.DataFrame,
+        selected_supply_sources: Optional[List[str]]
+    ) -> Dict[int, float]:
+        """
+        Pre-process supply data into material_id → total_supply lookup.
+        Respects selected_supply_sources filter.
+        """
+        if raw_supply_df.empty:
+            return {}
+        
+        SOURCE_TO_COLUMN = {
+            'INVENTORY': 'inventory_qty',
+            'CAN_PENDING': 'can_pending_qty',
+            'WAREHOUSE_TRANSFER': 'warehouse_transfer_qty',
+            'PURCHASE_ORDER': 'purchase_order_qty'
+        }
+        
+        supply_df = raw_supply_df.copy()
+        mat_id_col = 'material_id' if 'material_id' in supply_df.columns else 'product_id'
+        
+        # Recalculate total_supply if specific sources selected
+        if selected_supply_sources:
+            selected_cols = [SOURCE_TO_COLUMN[s] for s in selected_supply_sources 
+                           if s in SOURCE_TO_COLUMN]
+            if selected_cols:
+                for col in selected_cols:
+                    if col not in supply_df.columns:
+                        supply_df[col] = 0
+                supply_df['total_supply'] = supply_df[selected_cols].fillna(0).sum(axis=1)
+        
+        if 'total_supply' in supply_df.columns:
+            lookup = supply_df.groupby(mat_id_col)['total_supply'].sum().to_dict()
+        else:
+            lookup = {}
+        
+        return lookup
+    
+    def _calculate_level_demand(
+        self,
+        parent_shortage_df: pd.DataFrame,
+        bom_df: pd.DataFrame,
+        id_col: str
+    ) -> pd.DataFrame:
+        """
+        Calculate material demand from parent shortage × BOM.
+        
+        Args:
+            parent_shortage_df: columns [product_id, net_gap] (net_gap = positive shortage qty)
+            bom_df: BOM explosion for these products
+            id_col: column name for output product ID in bom_df
+        
+        Returns:
+            DataFrame with required_qty per material (not yet aggregated by material_id
+            to allow leaf/semi classification before aggregation)
+        """
+        if parent_shortage_df.empty or bom_df.empty:
+            return pd.DataFrame()
+        
+        # Merge: parent shortage × BOM
+        merged = bom_df.merge(
+            parent_shortage_df[['product_id', 'net_gap']].rename(
+                columns={'product_id': id_col, 'net_gap': 'parent_shortage_qty'}
+            ),
+            on=id_col,
+            how='inner'
+        )
+        
+        if merged.empty:
+            return pd.DataFrame()
+        
+        # Calculate required_qty per material per BOM line
+        bom_out = merged['bom_output_quantity'].fillna(1).replace(0, 1) \
+            if 'bom_output_quantity' in merged.columns else 1
+        qty_per = merged['quantity_per_output'].fillna(1) \
+            if 'quantity_per_output' in merged.columns else 1
+        scrap = merged['scrap_rate'].fillna(0) \
+            if 'scrap_rate' in merged.columns else 0
+        
+        merged['required_qty'] = (
+            (merged['parent_shortage_qty'] / bom_out) * qty_per * (1 + scrap / 100)
+        )
+        
+        # Aggregate by material_id (same material may appear in multiple parent BOMs)
+        agg_cols = {
+            'required_qty': 'sum',
+            id_col: 'nunique'
+        }
+        optional = {
+            'material_pt_code': 'first', 'material_name': 'first',
+            'material_brand': 'first', 'material_uom': 'first',
+            'material_type': 'first', 'is_primary': 'first',
+            'alternative_priority': 'first', 'primary_material_id': 'first'
+        }
+        for col, func in optional.items():
+            if col in merged.columns:
+                agg_cols[col] = func
+        
+        demand = merged.groupby('material_id').agg(agg_cols).reset_index()
+        demand.rename(columns={id_col: 'parent_product_count'}, inplace=True)
+        
+        return demand
+    
+    def _aggregate_leaf_demand(
+        self,
+        leaf_demand_df: pd.DataFrame,
+        id_col: str
+    ) -> pd.DataFrame:
+        """Aggregate leaf (raw material) demand across all BOM levels."""
+        
+        if leaf_demand_df.empty:
+            return pd.DataFrame()
+        
+        agg_cols = {
+            'required_qty': 'sum',
+            'bom_level': 'min'  # min level where this material first appears
+        }
+        optional = {
+            'material_pt_code': 'first', 'material_name': 'first',
+            'material_brand': 'first', 'material_uom': 'first',
+            'material_type': 'first', 'is_primary': 'first',
+            'alternative_priority': 'first', 'primary_material_id': 'first',
+            'parent_product_count': 'sum'
+        }
+        for col, func in optional.items():
+            if col in leaf_demand_df.columns:
+                agg_cols[col] = func
+        
+        agg = leaf_demand_df.groupby('material_id').agg(agg_cols).reset_index()
+        agg.rename(columns={
+            'bom_level': 'min_bom_level',
+            'parent_product_count': 'fg_product_count'
+        }, inplace=True)
+        
+        return agg
+    
+    def _add_existing_mo_demand(
+        self,
+        demand_df: pd.DataFrame,
+        existing_mo_demand_df: Optional[pd.DataFrame]
+    ) -> pd.DataFrame:
+        """Add existing MO demand to aggregated material demand."""
+        
+        if demand_df.empty:
+            demand_df['existing_mo_demand'] = 0
+            demand_df['total_required_qty'] = 0
+            return demand_df
+        
+        if existing_mo_demand_df is not None and not existing_mo_demand_df.empty:
+            pending_col = 'pending_qty' if 'pending_qty' in existing_mo_demand_df.columns \
+                else 'pending_material_qty'
+            
+            if pending_col in existing_mo_demand_df.columns:
+                mo_agg = existing_mo_demand_df.groupby('material_id')[pending_col].sum().reset_index()
+                mo_agg.rename(columns={pending_col: 'existing_mo_demand'}, inplace=True)
+                demand_df = demand_df.merge(mo_agg, on='material_id', how='left')
+        
+        demand_df['existing_mo_demand'] = demand_df.get('existing_mo_demand', pd.Series(dtype=float)).fillna(0)
+        demand_df['total_required_qty'] = demand_df['required_qty'] + demand_df['existing_mo_demand']
+        
+        return demand_df
+    
+    def _calculate_material_gap_core(
+        self,
+        demand_df: pd.DataFrame,
+        supply_lookup: Dict[int, float],
+        safety_lookup: Dict[int, float],
+        bom_level: int,
+        material_category: str
+    ) -> pd.DataFrame:
+        """
+        Core GAP calculation for any set of materials (raw or semi-finished).
+        
+        Args:
+            demand_df: must have material_id, required_qty (or total_required_qty)
+            supply_lookup: material_id → total_supply
+            safety_lookup: material_id → safety_stock_qty
+            bom_level: level tag for these materials
+            material_category: 'RAW_MATERIAL' or 'SEMI_FINISHED'
+        """
+        if demand_df.empty:
+            return pd.DataFrame()
+        
+        gap = demand_df.copy()
+        
+        # Map supply
+        gap['total_supply'] = gap['material_id'].map(supply_lookup).fillna(0)
+        
+        # Map safety stock
+        gap['safety_stock_qty'] = gap['material_id'].map(safety_lookup).fillna(0)
+        
+        # Use total_required_qty if available (has existing MO), else required_qty
+        if 'total_required_qty' not in gap.columns:
+            gap['total_required_qty'] = gap['required_qty']
+        
+        # GAP calculation (same formula as existing)
+        gap['safety_gap'] = gap['total_supply'] - gap['safety_stock_qty']
+        gap['available_supply'] = gap['safety_gap'].clip(lower=0)
+        gap['net_gap'] = gap['available_supply'] - gap['total_required_qty']
+        
+        # Coverage ratio
+        gap['coverage_ratio'] = np.where(
+            gap['total_required_qty'] > 0,
+            gap['available_supply'] / gap['total_required_qty'],
+            np.where(gap['total_supply'] > 0, 999, 0)
+        )
+        
+        # Status classification
+        gap['gap_status'] = gap.apply(self._classify_gap_status, axis=1)
+        gap['priority'] = gap['gap_status'].apply(
+            lambda x: STATUS_CONFIG.get(x, {}).get('priority', 99)
+        )
+        
+        # Tags
+        gap['bom_level'] = bom_level
+        gap['material_category'] = material_category
+        gap['is_leaf'] = (material_category == 'RAW_MATERIAL')
+        
+        gap = gap.sort_values(['priority', 'net_gap']).reset_index(drop=True)
+        
+        return gap
+    
+    # =========================================================================
     # ACTION RECOMMENDATIONS
     # =========================================================================
     
@@ -841,6 +1245,20 @@ class SupplyChainGAPCalculator:
                     priority=row.get('priority', 99),
                     reason='Raw material shortage'
                 ))
+        
+        # MO suggestions for semi-finished products with shortage
+        semi_shortage = result.get_semi_finished_shortage()
+        for _, row in semi_shortage.iterrows():
+            mo_suggestions.append(ActionRecommendation(
+                action_type='CREATE_MO_SEMI',
+                product_id=row.get('material_id', 0),
+                pt_code=row.get('material_pt_code', ''),
+                product_name=row.get('material_name', ''),
+                quantity=abs(row.get('net_gap', 0)),
+                uom=row.get('material_uom', ''),
+                priority=row.get('priority', 99),
+                reason=f"Semi-finished shortage at BOM level {row.get('bom_level', '?')}"
+            ))
         
         return mo_suggestions, po_fg_suggestions, po_raw_suggestions
 

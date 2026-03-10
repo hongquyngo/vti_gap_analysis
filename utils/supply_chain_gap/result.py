@@ -55,7 +55,7 @@ class SupplyChainGAPResult:
     Contains:
     - Level 1: FG GAP analysis
     - Classification: Manufacturing vs Trading
-    - Level 2: Raw Material GAP
+    - Level 2+: Multi-level Material GAP (raw + semi-finished)
     - Actions: MO, PO-FG, PO-Raw recommendations
     """
     
@@ -72,13 +72,15 @@ class SupplyChainGAPResult:
     manufacturing_df: pd.DataFrame = field(default_factory=pd.DataFrame)
     trading_df: pd.DataFrame = field(default_factory=pd.DataFrame)
     
-    # Level 2: Raw Material GAP
-    bom_explosion_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    # Multi-level Material GAP
+    bom_explosion_df: pd.DataFrame = field(default_factory=pd.DataFrame)      # Single-level BOM (all BOMs)
     raw_demand_df: pd.DataFrame = field(default_factory=pd.DataFrame)
     raw_supply_df: pd.DataFrame = field(default_factory=pd.DataFrame)
-    raw_gap_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    raw_gap_df: pd.DataFrame = field(default_factory=pd.DataFrame)            # Leaf (raw material) GAP
+    semi_finished_gap_df: pd.DataFrame = field(default_factory=pd.DataFrame)  # Semi-finished GAP per level
     raw_metrics: Dict[str, Any] = field(default_factory=dict)
     alternative_analysis_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    max_bom_depth: int = 0                                                    # Deepest BOM level reached
     
     # Actions
     mo_suggestions: List[ActionRecommendation] = field(default_factory=list)
@@ -126,6 +128,11 @@ class SupplyChainGAPResult:
             'raw_total': len(self.raw_gap_df),
             'raw_shortage': len(self.get_raw_shortage()),
             'raw_sufficient': len(self.raw_gap_df) - len(self.get_raw_shortage()) if len(self.raw_gap_df) > 0 else 0,
+            
+            # Semi-finished metrics
+            'semi_finished_total': len(self.semi_finished_gap_df),
+            'semi_finished_shortage': len(self.get_semi_finished_shortage()),
+            'max_bom_depth': self.max_bom_depth,
             
             # Value metrics
             'at_risk_value': self.fg_metrics.get('at_risk_value', 0),
@@ -187,6 +194,23 @@ class SupplyChainGAPResult:
         if self.raw_gap_df.empty or 'net_gap' not in self.raw_gap_df.columns:
             return pd.DataFrame()
         return self.raw_gap_df[self.raw_gap_df['net_gap'] < 0].copy()
+    
+    def get_semi_finished_shortage(self) -> pd.DataFrame:
+        """Get semi-finished materials with shortage"""
+        if self.semi_finished_gap_df.empty or 'net_gap' not in self.semi_finished_gap_df.columns:
+            return pd.DataFrame()
+        return self.semi_finished_gap_df[self.semi_finished_gap_df['net_gap'] < 0].copy()
+    
+    def get_all_material_gap(self) -> pd.DataFrame:
+        """Get combined GAP for all materials (raw + semi-finished)"""
+        parts = []
+        if not self.raw_gap_df.empty:
+            parts.append(self.raw_gap_df)
+        if not self.semi_finished_gap_df.empty:
+            parts.append(self.semi_finished_gap_df)
+        if parts:
+            return pd.concat(parts, ignore_index=True)
+        return pd.DataFrame()
     
     def get_raw_materials_for_fg(self, fg_product_id: int) -> pd.DataFrame:
         """Get raw materials required for a specific FG product"""
@@ -384,7 +408,10 @@ class SupplyChainGAPResult:
         return not self.classification_df.empty
     
     def has_raw_data(self) -> bool:
-        return not self.raw_gap_df.empty
+        return not self.raw_gap_df.empty or not self.semi_finished_gap_df.empty
+    
+    def has_semi_finished_data(self) -> bool:
+        return not self.semi_finished_gap_df.empty
     
     def has_actions(self) -> bool:
         return len(self.mo_suggestions) > 0 or len(self.po_fg_suggestions) > 0 or len(self.po_raw_suggestions) > 0

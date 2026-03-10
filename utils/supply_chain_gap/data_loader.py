@@ -338,6 +338,74 @@ class SupplyChainDataLoader:
             logger.warning(f"Could not load BOM explosion (view may not exist): {e}")
             return pd.DataFrame()
     
+    def load_bom_full_explosion(
+        self,
+        root_product_ids: Optional[Tuple[int, ...]] = None
+    ) -> pd.DataFrame:
+        """
+        Load multi-level BOM explosion from bom_full_explosion_view.
+        Recursive CTE that walks entire BOM tree: FG → Semi-finished → Raw.
+        
+        Used for:
+        - UI drill-down: show full BOM tree per FG product
+        - Export: multi-level BOM details
+        - Calculator: determine is_leaf for each material
+        
+        Columns include bom_level, is_leaf, cumulative_qty_per_root,
+        material_category, bom_path, display_hierarchy.
+        """
+        
+        query = """
+        SELECT 
+            root_bom_id,
+            root_bom_code,
+            root_product_id,
+            bom_id,
+            bom_code,
+            bom_type,
+            output_product_id,
+            output_qty,
+            output_uom,
+            bom_detail_id,
+            material_id,
+            material_pt_code,
+            material_name,
+            material_uom,
+            material_brand,
+            material_type,
+            is_primary,
+            alternative_priority,
+            primary_material_id,
+            quantity_per_output,
+            scrap_rate,
+            effective_qty_per_output,
+            cumulative_qty_per_root,
+            bom_level,
+            bom_path,
+            is_leaf,
+            display_hierarchy,
+            material_category
+        FROM bom_full_explosion_view
+        WHERE 1=1
+        """
+        params = {}
+        
+        if root_product_ids:
+            query += " AND root_product_id IN %(root_product_ids)s"
+            params['root_product_ids'] = root_product_ids
+        
+        try:
+            df = pd.read_sql(query, self._engine, params=params)
+            # Rename for consistency with existing code
+            if 'output_qty' in df.columns:
+                df.rename(columns={'output_qty': 'bom_output_quantity'}, inplace=True)
+            logger.info(f"Loaded {len(df)} multi-level BOM records "
+                       f"(max depth: {df['bom_level'].max() if not df.empty else 0})")
+            return df
+        except Exception as e:
+            logger.warning(f"Could not load bom_full_explosion_view (may not exist yet): {e}")
+            return pd.DataFrame()
+    
     # =========================================================================
     # EXISTING MO DEMAND
     # =========================================================================

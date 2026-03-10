@@ -56,7 +56,11 @@ def export_to_excel(
         if not result.trading_df.empty:
             _write_trading_sheet(writer, result)
         
-        # Sheet 5: Raw Material GAP
+        # Sheet 5: Semi-Finished Materials (if multi-level)
+        if include_raw_materials and not result.semi_finished_gap_df.empty:
+            _write_semi_finished_sheet(writer, result)
+        
+        # Sheet 6: Raw Material GAP
         if include_raw_materials and not result.raw_gap_df.empty:
             _write_raw_gap_sheet(writer, result)
         
@@ -94,8 +98,11 @@ def _write_summary_sheet(
         ['Trading Products', metrics.get('trading_count', 0)],
         ['', ''],
         ['--- RAW MATERIALS ---', ''],
-        ['Total Materials', metrics.get('raw_total', 0)],
-        ['Materials with Shortage', metrics.get('raw_shortage', 0)],
+        ['Total Raw Materials', metrics.get('raw_total', 0)],
+        ['Raw Materials with Shortage', metrics.get('raw_shortage', 0)],
+        ['Semi-Finished Products', metrics.get('semi_finished_total', 0)],
+        ['Semi-Finished with Shortage', metrics.get('semi_finished_shortage', 0)],
+        ['Max BOM Depth', metrics.get('max_bom_depth', 1)],
         ['', ''],
         ['--- ACTIONS ---', ''],
         ['MO to Create', metrics.get('mo_count', 0)],
@@ -215,6 +222,48 @@ def _write_trading_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     export_df.to_excel(writer, sheet_name='Trading', index=False)
 
 
+def _write_semi_finished_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
+    """Write semi-finished material GAP sheet (multi-level BOM intermediates)"""
+    
+    df = result.semi_finished_gap_df.copy()
+    
+    if df.empty:
+        pd.DataFrame({'Note': ['No semi-finished materials']}).to_excel(
+            writer, sheet_name='Semi-Finished', index=False
+        )
+        return
+    
+    columns = [
+        'material_pt_code', 'material_name', 'material_brand', 'material_uom',
+        'bom_level', 'required_qty', 'total_supply', 'safety_stock_qty',
+        'net_gap', 'coverage_ratio', 'gap_status'
+    ]
+    available = [c for c in columns if c in df.columns]
+    export_df = df[available].copy()
+    
+    # Add netting status
+    if 'net_gap' in export_df.columns:
+        export_df['Supply Netting'] = export_df['net_gap'].apply(
+            lambda x: 'Supply covers' if x >= 0 else 'Shortage propagates to next level'
+        )
+    
+    export_df.rename(columns={
+        'material_pt_code': 'Material Code',
+        'material_name': 'Material Name',
+        'material_brand': 'Brand',
+        'material_uom': 'UOM',
+        'bom_level': 'BOM Level',
+        'required_qty': 'Required Qty',
+        'total_supply': 'Total Supply',
+        'safety_stock_qty': 'Safety Stock',
+        'net_gap': 'Net GAP',
+        'coverage_ratio': 'Coverage',
+        'gap_status': 'Status'
+    }, inplace=True)
+    
+    export_df.to_excel(writer, sheet_name='Semi-Finished', index=False)
+
+
 def _write_raw_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     """Write raw material GAP sheet"""
     
@@ -228,7 +277,7 @@ def _write_raw_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
     
     columns = [
         'material_pt_code', 'material_name', 'material_brand', 'material_uom',
-        'material_type', 'is_primary', 'fg_product_count',
+        'material_type', 'is_primary', 'bom_level', 'fg_product_count',
         'required_qty', 'existing_mo_demand', 'total_required_qty',
         'total_supply', 'safety_stock_qty', 'net_gap', 'coverage_ratio', 'gap_status'
     ]
@@ -247,6 +296,7 @@ def _write_raw_gap_sheet(writer: pd.ExcelWriter, result: SupplyChainGAPResult):
         'material_uom': 'UOM',
         'material_type': 'Type',
         'is_primary': 'Is Primary',
+        'bom_level': 'BOM Level',
         'fg_product_count': 'FG Products',
         'required_qty': 'New Demand',
         'existing_mo_demand': 'Existing MO',

@@ -8,7 +8,27 @@ Independent module for full multi-level analysis
 # =============================================================================
 # VERSION
 # =============================================================================
-VERSION = "1.0.0"
+VERSION = "2.0.0"
+
+# =============================================================================
+# MULTI-LEVEL BOM CONFIGURATION
+# =============================================================================
+MAX_BOM_LEVELS = 10  # Safety limit for recursive BOM explosion
+
+MATERIAL_LEVEL_TYPES = {
+    'SEMI_FINISHED': {
+        'label': 'Semi-Finished',
+        'icon': '🔶',
+        'color': '#F59E0B',
+        'description': 'Material with own BOM — can be produced from sub-materials'
+    },
+    'RAW_MATERIAL': {
+        'label': 'Raw Material',
+        'icon': '🧪',
+        'color': '#8B5CF6',
+        'description': 'Leaf material — no BOM, must be purchased'
+    }
+}
 
 # =============================================================================
 # GAP STATUS CATEGORIES
@@ -141,6 +161,24 @@ MATERIAL_TYPES = {
 }
 
 # =============================================================================
+# MULTI-LEVEL BOM CONFIGURATION
+# =============================================================================
+MAX_BOM_LEVELS = 10  # Safety limit for recursive BOM explosion
+
+MATERIAL_CATEGORIES = {
+    'RAW_MATERIAL': {
+        'label': 'Raw Material',
+        'icon': '🧪',
+        'description': 'Leaf node — no BOM, must purchase'
+    },
+    'SEMI_FINISHED': {
+        'label': 'Semi-Finished',
+        'icon': '🔶',
+        'description': 'Has its own BOM — can be produced from lower-level materials'
+    }
+}
+
+# =============================================================================
 # ACTION TYPES
 # =============================================================================
 ACTION_TYPES = {
@@ -148,6 +186,12 @@ ACTION_TYPES = {
         'label': 'Create MO',
         'icon': '🏭',
         'color': '#3B82F6',
+        'category': 'Manufacturing'
+    },
+    'CREATE_MO_SEMI': {
+        'label': 'Create MO (Semi)',
+        'icon': '🔶',
+        'color': '#6366F1',
         'category': 'Manufacturing'
     },
     'WAIT_RAW': {
