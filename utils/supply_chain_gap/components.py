@@ -119,6 +119,8 @@ def render_kpi_cards(result: SupplyChainGAPResult):
     with cols[4]:
         _kpi_card("Affected Customers", metrics.get('affected_customers', 0), icon="👥", color="#8B5CF6",
                    tooltip="Số khách hàng có đơn hàng liên quan đến sản phẩm shortage")
+        # Customer detail popover
+        _render_customer_popover(result)
     
     # Row 2: Classification
     if result.has_classification():
@@ -183,6 +185,67 @@ def _kpi_card(label: str, value: Any, icon: str = "📊", color: str = "#3B82F6"
         <div style="font-size: 12px; color: #6B7280;">{label}</div>
     </div>
     """, unsafe_allow_html=True)
+
+
+def _render_customer_popover(result: SupplyChainGAPResult):
+    """Render popover with affected customer details"""
+    
+    impact = result.customer_impact
+    if not impact or impact.affected_count == 0:
+        return
+    
+    with st.popover("👁 View Details"):
+        st.markdown("#### 👥 Affected Customers")
+        st.caption(f"{impact.affected_count} customers impacted · ${impact.at_risk_value:,.0f} USD at risk")
+        
+        # Detail table if available
+        if impact.details is not None and not impact.details.empty:
+            details = impact.details.copy()
+            
+            # Ensure numeric
+            if 'shortage_products' in details.columns:
+                details['shortage_products'] = pd.to_numeric(details['shortage_products'], errors='coerce').fillna(0).astype(int)
+            if 'total_demand_qty' in details.columns:
+                details['total_demand_qty'] = pd.to_numeric(details['total_demand_qty'], errors='coerce').fillna(0).round(0)
+            if 'demand_value_usd' in details.columns:
+                details['demand_value_usd'] = pd.to_numeric(details['demand_value_usd'], errors='coerce').fillna(0).round(0)
+            
+            display_cols = {
+                'customer': 'Customer',
+                'shortage_products': '# Products',
+                'total_demand_qty': 'Total Demand',
+                'demand_value_usd': 'Value (USD)',
+                'product_codes': 'Product Codes'
+            }
+            
+            available = {k: v for k, v in display_cols.items() if k in details.columns}
+            display_df = details[list(available.keys())].copy()
+            
+            col_config = {}
+            if 'customer' in display_df.columns:
+                col_config['customer'] = st.column_config.TextColumn('Customer', width='medium')
+            if 'shortage_products' in display_df.columns:
+                col_config['shortage_products'] = st.column_config.NumberColumn('# Products', format="%d")
+            if 'total_demand_qty' in display_df.columns:
+                col_config['total_demand_qty'] = st.column_config.NumberColumn('Total Demand', format="%.0f")
+            if 'demand_value_usd' in display_df.columns:
+                col_config['demand_value_usd'] = st.column_config.NumberColumn('Value (USD)', format="$ %.0f")
+            if 'product_codes' in display_df.columns:
+                col_config['product_codes'] = st.column_config.TextColumn('Product Codes', width='large')
+            
+            st.dataframe(
+                display_df,
+                column_config=col_config,
+                hide_index=True,
+                height=min(400, 35 * len(display_df) + 38)
+            )
+        else:
+            # Fallback: simple list
+            st.markdown("**Customers:**")
+            for cust in impact.affected_customers[:20]:
+                st.markdown(f"- {cust}")
+            if len(impact.affected_customers) > 20:
+                st.caption(f"... and {len(impact.affected_customers) - 20} more")
 
 
 # =============================================================================

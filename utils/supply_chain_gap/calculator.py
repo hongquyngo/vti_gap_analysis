@@ -408,7 +408,7 @@ class SupplyChainGAPCalculator:
         demand_df: pd.DataFrame,
         gap_df: pd.DataFrame
     ) -> CustomerImpact:
-        """Calculate customer impact from shortages"""
+        """Calculate customer impact from shortages with per-customer detail"""
         if demand_df.empty or gap_df.empty:
             return CustomerImpact()
         
@@ -425,10 +425,49 @@ class SupplyChainGAPCalculator:
         affected_customers = affected_demand['customer'].dropna().unique().tolist()
         at_risk_value = gap_df[gap_df['net_gap'] < 0]['at_risk_value'].sum()
         
+        # Build per-customer detail: customer → products affected, total demand qty, total value
+        details = pd.DataFrame()
+        try:
+            # Merge demand with gap to get shortage info per customer-product
+            detail_merge = affected_demand.merge(
+                gap_df[['product_id', 'pt_code', 'product_name', 'net_gap', 'gap_status', 'at_risk_value']],
+                on='product_id',
+                how='inner',
+                suffixes=('', '_gap')
+            )
+            
+            if not detail_merge.empty and 'customer' in detail_merge.columns:
+                # Aggregate: per customer
+                agg_dict = {
+                    'product_id': 'nunique',
+                    'required_quantity': 'sum',
+                }
+                if 'total_value_usd' in detail_merge.columns:
+                    agg_dict['total_value_usd'] = 'sum'
+                
+                customer_summary = detail_merge.groupby('customer').agg(agg_dict).reset_index()
+                customer_summary.rename(columns={
+                    'product_id': 'shortage_products',
+                    'required_quantity': 'total_demand_qty',
+                    'total_value_usd': 'demand_value_usd'
+                }, inplace=True)
+                
+                # Also get product list per customer
+                product_lists = detail_merge.groupby('customer').apply(
+                    lambda g: ', '.join(g['pt_code'].dropna().unique()[:5]),
+                    include_groups=False
+                ).reset_index(name='product_codes')
+                
+                details = customer_summary.merge(product_lists, on='customer', how='left')
+                details = details.sort_values('shortage_products', ascending=False).reset_index(drop=True)
+        except Exception as e:
+            logger.warning(f"Could not build customer impact details: {e}")
+        
         return CustomerImpact(
             affected_count=len(affected_customers),
             affected_customers=affected_customers,
-            at_risk_value=at_risk_value
+            at_risk_value=at_risk_value,
+            details=details
         )
     
     # =========================================================================
