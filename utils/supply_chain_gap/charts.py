@@ -156,27 +156,82 @@ class SupplyChainCharts:
         return fig
     
     def create_raw_material_status(self, raw_gap_df: pd.DataFrame) -> go.Figure:
-        """Create raw material status chart"""
+        """Create raw material status chart — shortage severity distribution"""
         
         if raw_gap_df.empty or 'gap_status' not in raw_gap_df.columns:
             return self._empty_chart("No raw material data")
         
-        status_counts = raw_gap_df['gap_status'].value_counts()
+        # Group into meaningful categories for procurement/planning
+        def _classify(status):
+            if 'CRITICAL' in status or 'SEVERE' in status:
+                return '🔴 Critical/Severe'
+            elif 'HIGH' in status or 'MODERATE' in status:
+                return '🟠 High/Moderate'
+            elif 'LIGHT' in status and 'SHORTAGE' in status:
+                return '🟡 Light Shortage'
+            elif 'BALANCED' in status:
+                return '✅ Balanced'
+            elif 'SURPLUS' in status:
+                return '🔵 Surplus'
+            else:
+                return '⚪ No Demand'
         
-        colors = [STATUS_CONFIG.get(s, {}).get('color', '#6B7280') for s in status_counts.index]
+        raw_gap_df = raw_gap_df.copy()
+        raw_gap_df['status_group'] = raw_gap_df['gap_status'].apply(_classify)
+        
+        # Order: critical first
+        order = ['🔴 Critical/Severe', '🟠 High/Moderate', '🟡 Light Shortage',
+                 '✅ Balanced', '🔵 Surplus', '⚪ No Demand']
+        colors = ['#DC2626', '#EA580C', '#EAB308', '#10B981', '#3B82F6', '#D1D5DB']
+        
+        group_counts = raw_gap_df['status_group'].value_counts()
+        ordered_labels = [o for o in order if o in group_counts.index]
+        ordered_values = [group_counts[o] for o in ordered_labels]
+        ordered_colors = [colors[order.index(o)] for o in ordered_labels]
+        
+        fig = go.Figure(data=[go.Pie(
+            labels=ordered_labels,
+            values=ordered_values,
+            hole=0.45,
+            marker_colors=ordered_colors,
+            textinfo='label+value',
+            textposition='outside',
+            sort=False
+        )])
+        
+        fig.update_layout(
+            title="Material Status Distribution",
+            height=self.chart_height,
+            showlegend=False,
+            margin=dict(t=40, b=20, l=20, r=20)
+        )
+        
+        return fig
+    
+    def create_raw_material_top_shortage(self, raw_gap_df: pd.DataFrame, top_n: int = 8) -> go.Figure:
+        """Create top raw material shortages bar chart"""
+        
+        if raw_gap_df.empty or 'net_gap' not in raw_gap_df.columns:
+            return self._empty_chart("No shortage data")
+        
+        shortage = raw_gap_df[raw_gap_df['net_gap'] < 0].nsmallest(top_n, 'net_gap')
+        if shortage.empty:
+            return self._empty_chart("No material shortages")
+        
+        x_col = 'material_pt_code' if 'material_pt_code' in shortage.columns else 'material_name'
         
         fig = go.Figure(data=[go.Bar(
-            x=status_counts.index,
-            y=status_counts.values,
-            marker_color=colors,
-            text=status_counts.values,
+            x=shortage[x_col],
+            y=shortage['net_gap'],
+            marker_color='#DC2626',
+            text=shortage['net_gap'].apply(lambda x: f"{x:,.0f}"),
             textposition='outside'
         )])
         
         fig.update_layout(
-            title="Raw Material GAP Status",
-            xaxis_title="Status",
-            yaxis_title="Count",
+            title=f"Top {top_n} Material Shortages",
+            xaxis_title="",
+            yaxis_title="Net GAP",
             height=self.chart_height,
             margin=dict(t=40, b=80, l=60, r=20),
             xaxis_tickangle=-45

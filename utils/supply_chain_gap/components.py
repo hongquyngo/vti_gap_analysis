@@ -505,7 +505,8 @@ def _get_column_config_fg() -> Dict[str, Any]:
     return {
         'product_id': None,  # Hidden — used for selection lookup
         'pt_code': st.column_config.TextColumn('Code', width='small'),
-        'product_name': st.column_config.TextColumn('Product', width='medium'),
+        'product_name': st.column_config.TextColumn('Part Number', width='medium'),
+        'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
         'brand': st.column_config.TextColumn('Brand', width='small'),
         'standard_uom': st.column_config.TextColumn('UOM', width='small'),
         'total_supply': st.column_config.NumberColumn('Supply', format="%,.0f"),
@@ -546,7 +547,7 @@ def render_fg_table(
     # Display columns — product_id included but hidden via column_config
     display_cols = [
         'product_id',
-        'pt_code', 'product_name', 'brand', 'standard_uom',
+        'pt_code', 'product_name', 'package_size', 'brand', 'standard_uom',
         'total_supply', 'total_demand', 'net_gap',
         'coverage_pct', 'gap_status_display', 'at_risk_value'
     ]
@@ -641,8 +642,11 @@ def render_manufacturing_table(
         can_produce = status.get('can_produce', False)
         display_data.append({
             'pt_code': row.get('pt_code', ''),
-            'product_name': str(row.get('product_name', ''))[:40],
+            'product_name': str(row.get('product_name', ''))[:50],
+            'package_size': str(row.get('package_size', '')) if pd.notna(row.get('package_size')) else '',
+            'brand': row.get('brand', ''),
             'net_gap': round(float(row.get('net_gap', 0)), 0),
+            'at_risk_value': round(float(row.get('at_risk_value', 0)), 0) if pd.notna(row.get('at_risk_value')) else 0,
             'can_produce': '✅ Yes' if can_produce else '❌ No',
             'production_status': status.get('status', 'UNKNOWN'),
             'reason': status.get('reason', '')[:50],
@@ -654,9 +658,12 @@ def render_manufacturing_table(
         display_df,
         column_config={
             'pt_code': st.column_config.TextColumn('Code', width='small'),
-            'product_name': st.column_config.TextColumn('Product', width='medium'),
+            'product_name': st.column_config.TextColumn('Part Number', width='medium'),
+            'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
+            'brand': st.column_config.TextColumn('Brand', width='small'),
             'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
-            'can_produce': st.column_config.TextColumn('Can Produce', width='small'),
+            'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %,.0f"),
+            'can_produce': st.column_config.TextColumn('Producible', width='small'),
             'production_status': st.column_config.TextColumn('Status', width='small'),
             'reason': st.column_config.TextColumn('Reason', width='medium'),
             'bom_code': st.column_config.TextColumn('BOM', width='small'),
@@ -693,14 +700,15 @@ def render_trading_table(
     page_df['net_gap'] = pd.to_numeric(page_df.get('net_gap', 0), errors='coerce').fillna(0).round(0)
     page_df['action'] = '🛒 Create PO'
     
-    display_cols = ['pt_code', 'product_name', 'brand', 'net_gap', 'at_risk_value', 'action']
+    display_cols = ['pt_code', 'product_name', 'package_size', 'brand', 'net_gap', 'at_risk_value', 'action']
     available = [c for c in display_cols if c in page_df.columns]
     
     st.dataframe(
         page_df[available],
         column_config={
             'pt_code': st.column_config.TextColumn('Code', width='small'),
-            'product_name': st.column_config.TextColumn('Product', width='medium'),
+            'product_name': st.column_config.TextColumn('Part Number', width='medium'),
+            'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
             'brand': st.column_config.TextColumn('Brand', width='small'),
             'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
             'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %,.0f"),
@@ -763,10 +771,12 @@ def render_raw_material_table(
     else:
         page_df['coverage_pct'] = 0
     
-    display_cols = ['material_pt_code', 'material_name', 'material_type']
+    display_cols = ['material_pt_code', 'material_name', 'material_brand', 'material_uom', 'material_type']
     col_config = {
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
         'material_name': st.column_config.TextColumn('Material', width='medium'),
+        'material_brand': st.column_config.TextColumn('Brand', width='small'),
+        'material_uom': st.column_config.TextColumn('UOM', width='small'),
         'material_type': st.column_config.TextColumn('Type', width='small'),
     }
     if 'bom_level' in page_df.columns and page_df['bom_level'].nunique() > 1:
@@ -813,7 +823,8 @@ def render_semi_finished_table(
         if col in page_df.columns:
             page_df[col] = pd.to_numeric(page_df[col], errors='coerce').fillna(0).round(0)
     
-    display_cols = ['material_pt_code', 'material_name', 'bom_level', 'required_qty', 'total_supply', 'net_gap']
+    display_cols = ['material_pt_code', 'material_name', 'material_brand', 'material_uom', 'bom_level',
+                    'required_qty', 'total_supply', 'net_gap']
     available = [c for c in display_cols if c in page_df.columns]
     
     if 'net_gap' in page_df.columns:
@@ -825,7 +836,9 @@ def render_semi_finished_table(
         page_df[available],
         column_config={
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
-            'material_name': st.column_config.TextColumn('Semi-Finished Product', width='medium'),
+            'material_name': st.column_config.TextColumn('Material', width='medium'),
+            'material_brand': st.column_config.TextColumn('Brand', width='small'),
+            'material_uom': st.column_config.TextColumn('UOM', width='small'),
             'bom_level': st.column_config.NumberColumn('Level', format="%d", width='small'),
             'required_qty': st.column_config.NumberColumn('Required', format="%,.0f"),
             'total_supply': st.column_config.NumberColumn('Supply', format="%,.0f"),
@@ -1035,7 +1048,8 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
         is_primary = mat.get('is_primary', 1) in [1, True]
         mat_data.append({
             'material_pt_code': mat.get('material_pt_code', ''),
-            'material_name': str(mat.get('material_name', ''))[:35],
+            'material_name': str(mat.get('material_name', ''))[:40],
+            'material_brand': mat.get('material_brand', '') if pd.notna(mat.get('material_brand')) else '',
             'type_label': '🔵 Primary' if is_primary else '🔄 Alt',
             'quantity_per_output': round(float(mat.get('quantity_per_output', 0) or 0), 2),
             'scrap_rate': round(float(mat.get('scrap_rate', 0) or 0), 1),
@@ -1048,6 +1062,7 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
     st.dataframe(mat_df, column_config={
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
         'material_name': st.column_config.TextColumn('Material', width='medium'),
+        'material_brand': st.column_config.TextColumn('Brand', width='small'),
         'type_label': st.column_config.TextColumn('Type', width='small'),
         'quantity_per_output': st.column_config.NumberColumn('Qty/Output', format="%.2f"),
         'scrap_rate': st.column_config.NumberColumn('Scrap %', format="%.1f%%"),
@@ -1117,12 +1132,13 @@ def render_pagination(current_page: int, total_pages: int, key_prefix: str = "ma
 
 @st.fragment
 def fg_charts_fragment(result: SupplyChainGAPResult, charts):
-    """Fragment for FG charts — no widgets, so never self-reruns."""
+    """Fragment for FG charts — donut + value at risk + top shortages."""
     col1, col2 = st.columns(2)
     with col1:
         st.plotly_chart(charts.create_status_donut(result.fg_gap_df), use_container_width=True)
     with col2:
-        st.plotly_chart(charts.create_value_analysis(result.fg_gap_df), use_container_width=True)
+        st.plotly_chart(charts.create_top_items_bar(result.fg_gap_df, 'shortage', 8), use_container_width=True)
+    
     render_status_summary(result.fg_gap_df, key_prefix="fg")
 
 
@@ -1208,15 +1224,29 @@ def manufacturing_fragment(result: SupplyChainGAPResult, charts):
     state = get_state()
     
     if result.has_classification():
-        col1, col2 = st.columns(2)
+        mfg_shortage = result.get_manufacturing_shortage()
+        all_statuses = result.get_all_production_statuses()
+        
+        can_produce_count = sum(1 for s in all_statuses.values() if s.get('can_produce'))
+        cannot_produce_count = len(all_statuses) - can_produce_count
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
             st.plotly_chart(
                 charts.create_classification_pie(len(result.manufacturing_df), len(result.trading_df)),
                 use_container_width=True)
         with col2:
             metrics = result.get_metrics()
-            st.metric("Total Manufacturing", metrics.get('manufacturing_count', 0))
-            st.metric("With Shortage", len(result.get_manufacturing_shortage()))
+            st.metric("Manufacturing Products", metrics.get('manufacturing_count', 0))
+            st.metric("With Shortage", len(mfg_shortage))
+        with col3:
+            if all_statuses:
+                st.metric("✅ Can Produce", can_produce_count,
+                          help="Shortage products that have sufficient raw materials — ready to create MO")
+                st.metric("❌ Cannot Produce", cannot_produce_count,
+                          help="Shortage products missing raw materials — need PO for raw materials first")
+            else:
+                st.metric("BOM Analysis", "N/A")
     
     page = state.get_page('mfg')
     page_info = render_manufacturing_table(result, items_per_page=25, current_page=page)
@@ -1261,20 +1291,40 @@ def raw_materials_fragment(result: SupplyChainGAPResult, charts):
         return
     
     metrics = result.get_metrics()
+    rm = result.raw_metrics
+    
+    # --- Row 1: Metrics bar (compact) ---
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total Materials", rm.get('total_materials', 0))
+    c2.metric("🔴 Shortage", rm.get('shortage_count', 0))
+    c3.metric("✅ Sufficient", rm.get('sufficient_count', 0))
+    max_depth = metrics.get('max_bom_depth', 1)
+    semi_count = metrics.get('semi_finished_total', 0)
+    c4.metric("BOM Depth", f"{max_depth} levels" if max_depth > 1 else "1 level")
+    c5.metric("Semi-Finished", semi_count)
+    
+    # --- Insight callout ---
+    shortage_pct = (rm.get('shortage_count', 0) / max(rm.get('total_materials', 1), 1)) * 100
+    if shortage_pct >= 50:
+        st.error(
+            f"⚠️ **{shortage_pct:.0f}% of materials in shortage** — "
+            f"{rm.get('shortage_count', 0)} of {rm.get('total_materials', 0)} materials "
+            f"cannot meet current production requirements. Immediate procurement action needed."
+        )
+    elif shortage_pct >= 25:
+        st.warning(
+            f"🟡 **{shortage_pct:.0f}% of materials in shortage** — "
+            f"{rm.get('shortage_count', 0)} materials need procurement attention."
+        )
+    
+    # --- Row 2: Charts (donut + top shortages) ---
     col1, col2 = st.columns(2)
     with col1:
         st.plotly_chart(charts.create_raw_material_status(result.raw_gap_df), use_container_width=True)
     with col2:
-        rm = result.raw_metrics
-        st.metric("Total Raw Materials", rm.get('total_materials', 0))
-        st.metric("With Shortage", rm.get('shortage_count', 0))
-        st.metric("Sufficient", rm.get('sufficient_count', 0))
-        max_depth = metrics.get('max_bom_depth', 1)
-        semi_count = metrics.get('semi_finished_total', 0)
-        if max_depth > 1 or semi_count > 0:
-            st.metric("BOM Depth", f"{max_depth} levels")
-            st.metric("Semi-Finished", semi_count)
+        st.plotly_chart(charts.create_raw_material_top_shortage(result.raw_gap_df), use_container_width=True)
     
+    # --- Semi-finished section (only if multi-level) ---
     if result.has_semi_finished_data():
         st.markdown("#### 🔶 Semi-Finished Products (Supply Netting)")
         st.caption("Semi-finished products have their own BOMs. "
@@ -1282,6 +1332,7 @@ def raw_materials_fragment(result: SupplyChainGAPResult, charts):
         render_semi_finished_table(result, items_per_page=25, current_page=1)
         st.divider()
     
+    # --- Raw materials table ---
     st.markdown("#### 🧪 Raw Materials (Leaf Nodes)")
     page = state.get_page('raw')
     page_info = render_raw_material_table(result, items_per_page=25, current_page=page)
