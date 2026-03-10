@@ -73,6 +73,7 @@ from .components import (
 
 from .help import (
     render_help_dialog,
+    render_help_tab,
     render_formula_help_section,
     render_field_tooltip
 )
@@ -148,6 +149,7 @@ __all__ = [
     'render_action_table',
     'render_pagination',
     'render_help_dialog',
+    'render_help_tab',
     'render_formula_help_section',
     'render_field_tooltip',
     

@@ -96,18 +96,41 @@ def render_formula_help_section(section_key: str = 'all'):
 
 
 # =============================================================================
-# MAIN HELP DIALOG
+# MAIN HELP - TAB VERSION (for use inside st.tabs)
+# =============================================================================
+
+def render_help_tab():
+    """
+    Render comprehensive help content directly inside a tab.
+    Uses expanders for sections so user can expand/collapse as needed.
+    """
+    
+    st.markdown(
+        f"#### 📖 Hướng dẫn & Tài liệu tham khảo — v{VERSION}",
+    )
+    st.caption("Nhấn vào từng mục để xem chi tiết. Có thể mở nhiều mục cùng lúc.")
+    
+    with st.expander("📘 **Hướng dẫn sử dụng**", expanded=False):
+        _render_usage_guide()
+    
+    with st.expander("📗 **Thuật ngữ & Định nghĩa**", expanded=False):
+        _render_glossary()
+    
+    with st.expander("📙 **Công thức tính toán**", expanded=False):
+        _render_formulas()
+    
+    with st.expander("📕 **Câu hỏi thường gặp (FAQ)**", expanded=False):
+        _render_faq()
+
+
+# =============================================================================
+# MAIN HELP - EXPANDER VERSION (legacy, for backward compatibility)
 # =============================================================================
 
 def render_help_dialog():
     """
-    Render comprehensive help dialog.
-    
-    Tabs:
-    1. Hướng dẫn sử dụng (Usage Guide)
-    2. Thuật ngữ & Định nghĩa (Glossary)
-    3. Công thức tính toán (Formulas)
-    4. Câu hỏi thường gặp (FAQ)
+    Render help as an expander (legacy).
+    Prefer render_help_tab() for tab-based layout.
     """
     
     with st.expander("📖 **Hướng dẫn & Tài liệu tham khảo**", expanded=False):
