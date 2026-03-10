@@ -124,7 +124,11 @@ def render_kpi_cards(result: SupplyChainGAPResult):
             value=f"{metrics.get('affected_customers', 0):,}",
             help="Số khách hàng có đơn hàng liên quan đến sản phẩm đang shortage"
         )
-        _render_customer_popover(result)
+        # Dialog trigger button (only if there are affected customers)
+        impact = result.customer_impact
+        if impact and impact.affected_count > 0:
+            if st.button("👁 View Details", key="scg_cust_dialog_btn", use_container_width=True):
+                show_affected_customers_dialog()
     
     with cols[3]:
         raw_short = metrics.get('raw_shortage', 0)
@@ -152,62 +156,277 @@ def render_kpi_cards(result: SupplyChainGAPResult):
                   help="PO mua NVL cần tạo cho NVL chính đang shortage")
 
 
-def _render_customer_popover(result: SupplyChainGAPResult):
-    """Render wide popover with line-level customer × product details"""
-    impact = result.customer_impact
-    if not impact or impact.affected_count == 0:
+@st.dialog("👥 Affected Customers Analysis", width="large")
+def show_affected_customers_dialog():
+    """
+    Full-screen dialog for affected customer analysis.
+    
+    Retrieves result from session state.
+    Shows:
+    - Summary KPIs (customers, at-risk value, shortage products)
+    - Tab 1: By Customer — aggregated per customer
+    - Tab 2: By Product — aggregated per product
+    - Tab 3: Detail Lines — customer × product with proportional at-risk
+    """
+    from .state import get_state
+    
+    state = get_state()
+    result = state.get_result()
+    
+    if not result:
+        st.error("No analysis result available")
         return
     
-    with st.popover("👁 View Details", use_container_width=True):
-        st.markdown("#### 👥 Affected Customers Detail")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Customers Impacted", f"{impact.affected_count:,}")
-        with col2:
-            st.metric("Total At Risk", f"${impact.at_risk_value:,.0f}")
+    impact = result.customer_impact
+    if not impact or impact.affected_count == 0:
+        st.info("No affected customers")
+        return
+    
+    details = impact.details
+    has_details = details is not None and not details.empty
+    
+    # =========================================================================
+    # SUMMARY ROW
+    # =========================================================================
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Customers Impacted", f"{impact.affected_count:,}")
+    with col2:
+        st.metric("Total At Risk", f"${impact.at_risk_value:,.0f}")
+    with col3:
+        shortage_products = len(details['product_id'].unique()) if has_details and 'product_id' in details.columns else 0
+        st.metric("Shortage Products", f"{shortage_products:,}")
+    
+    if not has_details:
         st.divider()
+        st.markdown("**Affected customers:**")
+        for cust in impact.affected_customers[:30]:
+            st.markdown(f"- {cust}")
+        if len(impact.affected_customers) > 30:
+            st.caption(f"... and {len(impact.affected_customers) - 30} more")
+        return
+    
+    st.divider()
+    
+    # Ensure numeric columns
+    for col in ['demand_qty', 'at_risk_qty', 'at_risk_value_usd', 'demand_value_usd', 'shortage_qty', 'net_gap']:
+        if col in details.columns:
+            details[col] = pd.to_numeric(details[col], errors='coerce').fillna(0)
+    
+    # =========================================================================
+    # TABS
+    # =========================================================================
+    tab1, tab2, tab3 = st.tabs([
+        "📊 By Customer",
+        "📦 By Product",
+        "📋 Detail Lines"
+    ])
+    
+    # -------------------------------------------------------------------------
+    # TAB 1: BY CUSTOMER
+    # -------------------------------------------------------------------------
+    with tab1:
+        cust_agg_dict = {
+            'product_id': 'nunique',
+            'demand_qty': 'sum',
+        }
+        if 'at_risk_qty' in details.columns:
+            cust_agg_dict['at_risk_qty'] = 'sum'
+        if 'at_risk_value_usd' in details.columns:
+            cust_agg_dict['at_risk_value_usd'] = 'sum'
+        if 'demand_value_usd' in details.columns:
+            cust_agg_dict['demand_value_usd'] = 'sum'
         
-        if impact.details is not None and not impact.details.empty:
-            details = impact.details.copy()
-            customers = sorted(details['customer'].dropna().unique().tolist()) if 'customer' in details.columns else []
-            if customers:
-                selected_customer = st.selectbox("Filter by customer", ['All'] + customers, key="scg_customer_filter")
-                if selected_customer != 'All':
-                    details = details[details['customer'] == selected_customer]
-            
-            display_cols = []
-            col_config = {}
-            for col_name, label, width, col_type in [
-                ('customer', 'Customer', 'medium', 'text'),
-                ('pt_code', 'Product Code', 'small', 'text'),
-                ('product_name', 'Product Name', 'medium', 'text'),
-                ('package_size', 'Pkg Size', 'small', 'text'),
-                ('standard_uom', 'UOM', 'small', 'text'),
-            ]:
-                if col_name in details.columns:
-                    display_cols.append(col_name)
-                    col_config[col_name] = st.column_config.TextColumn(label, width=width)
-            
-            for col_name, label, fmt in [
-                ('demand_qty', 'Demand Qty', "%.0f"),
-                ('demand_value_usd', 'Value (USD)', "$ %.0f"),
-                ('net_gap', 'GAP', "%.0f"),
-            ]:
-                if col_name in details.columns:
-                    details[col_name] = pd.to_numeric(details[col_name], errors='coerce').fillna(0).round(0)
-                    display_cols.append(col_name)
-                    col_config[col_name] = st.column_config.NumberColumn(label, format=fmt)
-            
-            available = [c for c in display_cols if c in details.columns]
-            if available:
-                st.caption(f"Showing {len(details):,} lines")
-                st.dataframe(details[available], column_config=col_config, hide_index=True,
-                             height=min(500, 35 * len(details) + 38))
-        else:
-            for cust in impact.affected_customers[:20]:
-                st.markdown(f"- {cust}")
-            if len(impact.affected_customers) > 20:
-                st.caption(f"... and {len(impact.affected_customers) - 20} more")
+        cust_summary = details.groupby('customer').agg(cust_agg_dict).reset_index()
+        cust_summary.rename(columns={'product_id': 'products_affected'}, inplace=True)
+        
+        # Sort by at-risk value descending
+        sort_col = 'at_risk_value_usd' if 'at_risk_value_usd' in cust_summary.columns else 'demand_qty'
+        cust_summary = cust_summary.sort_values(sort_col, ascending=False).reset_index(drop=True)
+        
+        # Round
+        for col in ['demand_qty', 'at_risk_qty']:
+            if col in cust_summary.columns:
+                cust_summary[col] = cust_summary[col].round(0)
+        if 'at_risk_value_usd' in cust_summary.columns:
+            cust_summary['at_risk_value_usd'] = cust_summary['at_risk_value_usd'].round(0)
+        if 'demand_value_usd' in cust_summary.columns:
+            cust_summary['demand_value_usd'] = cust_summary['demand_value_usd'].round(0)
+        
+        cust_col_config = {
+            'customer': st.column_config.TextColumn('Customer', width='large'),
+            'products_affected': st.column_config.NumberColumn('Products', format="%d", width='small'),
+            'demand_qty': st.column_config.NumberColumn('Total Demand', format="%.0f"),
+        }
+        cust_display = ['customer', 'products_affected', 'demand_qty']
+        
+        if 'at_risk_qty' in cust_summary.columns:
+            cust_display.append('at_risk_qty')
+            cust_col_config['at_risk_qty'] = st.column_config.NumberColumn('At Risk Qty', format="%.0f")
+        if 'at_risk_value_usd' in cust_summary.columns:
+            cust_display.append('at_risk_value_usd')
+            cust_col_config['at_risk_value_usd'] = st.column_config.NumberColumn('At Risk ($)', format="$ %.0f")
+        if 'demand_value_usd' in cust_summary.columns:
+            cust_display.append('demand_value_usd')
+            cust_col_config['demand_value_usd'] = st.column_config.NumberColumn('Demand Value ($)', format="$ %.0f")
+        
+        available = [c for c in cust_display if c in cust_summary.columns]
+        
+        st.caption(f"{len(cust_summary)} customers — sorted by at-risk value")
+        st.dataframe(
+            cust_summary[available],
+            column_config=cust_col_config,
+            use_container_width=True,
+            hide_index=True,
+            height=min(500, 35 * len(cust_summary) + 38)
+        )
+    
+    # -------------------------------------------------------------------------
+    # TAB 2: BY PRODUCT
+    # -------------------------------------------------------------------------
+    with tab2:
+        prod_agg_dict = {
+            'customer': 'nunique',
+            'demand_qty': 'sum',
+        }
+        if 'at_risk_qty' in details.columns:
+            prod_agg_dict['at_risk_qty'] = 'sum'
+        if 'at_risk_value_usd' in details.columns:
+            prod_agg_dict['at_risk_value_usd'] = 'sum'
+        
+        # Also grab first-row product info
+        for info_col in ['pt_code', 'product_name', 'shortage_qty', 'gap_status', 'standard_uom']:
+            if info_col in details.columns:
+                prod_agg_dict[info_col] = 'first'
+        
+        prod_summary = details.groupby('product_id').agg(prod_agg_dict).reset_index()
+        prod_summary.rename(columns={'customer': 'customer_count'}, inplace=True)
+        
+        sort_col = 'at_risk_value_usd' if 'at_risk_value_usd' in prod_summary.columns else 'shortage_qty'
+        if sort_col in prod_summary.columns:
+            prod_summary = prod_summary.sort_values(sort_col, ascending=False).reset_index(drop=True)
+        
+        # Format gap_status with icon
+        if 'gap_status' in prod_summary.columns:
+            prod_summary['status_display'] = prod_summary['gap_status'].apply(
+                lambda x: f"{STATUS_CONFIG.get(x, {}).get('icon', '')} {x.replace('_', ' ').title()}" if pd.notna(x) else ''
+            )
+        
+        # Round
+        for col in ['demand_qty', 'at_risk_qty', 'shortage_qty', 'at_risk_value_usd']:
+            if col in prod_summary.columns:
+                prod_summary[col] = pd.to_numeric(prod_summary[col], errors='coerce').fillna(0).round(0)
+        
+        prod_display = []
+        prod_col_config = {}
+        
+        for col, label, width in [
+            ('pt_code', 'Code', 'small'),
+            ('product_name', 'Product', 'medium'),
+            ('standard_uom', 'UOM', 'small'),
+        ]:
+            if col in prod_summary.columns:
+                prod_display.append(col)
+                prod_col_config[col] = st.column_config.TextColumn(label, width=width)
+        
+        prod_display.append('customer_count')
+        prod_col_config['customer_count'] = st.column_config.NumberColumn('Customers', format="%d", width='small')
+        
+        if 'shortage_qty' in prod_summary.columns:
+            prod_display.append('shortage_qty')
+            prod_col_config['shortage_qty'] = st.column_config.NumberColumn('Shortage', format="%.0f")
+        
+        for col, label, fmt in [
+            ('demand_qty', 'Total Demand', "%.0f"),
+            ('at_risk_qty', 'At Risk Qty', "%.0f"),
+            ('at_risk_value_usd', 'At Risk ($)', "$ %.0f"),
+        ]:
+            if col in prod_summary.columns:
+                prod_display.append(col)
+                prod_col_config[col] = st.column_config.NumberColumn(label, format=fmt)
+        
+        if 'status_display' in prod_summary.columns:
+            prod_display.append('status_display')
+            prod_col_config['status_display'] = st.column_config.TextColumn('Status', width='medium')
+        
+        available = [c for c in prod_display if c in prod_summary.columns]
+        
+        st.caption(f"{len(prod_summary)} shortage products — sorted by at-risk value")
+        st.dataframe(
+            prod_summary[available],
+            column_config=prod_col_config,
+            use_container_width=True,
+            hide_index=True,
+            height=min(500, 35 * len(prod_summary) + 38)
+        )
+    
+    # -------------------------------------------------------------------------
+    # TAB 3: DETAIL LINES (customer × product)
+    # -------------------------------------------------------------------------
+    with tab3:
+        # Customer filter
+        customers = sorted(details['customer'].dropna().unique().tolist()) if 'customer' in details.columns else []
+        filtered_details = details.copy()
+        
+        if customers:
+            selected_customer = st.selectbox(
+                "Filter by customer",
+                options=['All'] + customers,
+                key="scg_cust_dialog_filter"
+            )
+            if selected_customer != 'All':
+                filtered_details = filtered_details[filtered_details['customer'] == selected_customer]
+        
+        # Format gap_status with icon
+        if 'gap_status' in filtered_details.columns:
+            filtered_details['status_display'] = filtered_details['gap_status'].apply(
+                lambda x: f"{STATUS_CONFIG.get(x, {}).get('icon', '')} {x.replace('_', ' ').title()}" if pd.notna(x) else ''
+            )
+        
+        # Build display columns
+        detail_display = []
+        detail_col_config = {}
+        
+        for col, label, width in [
+            ('customer', 'Customer', 'medium'),
+            ('pt_code', 'Code', 'small'),
+            ('product_name', 'Product', 'medium'),
+            ('standard_uom', 'UOM', 'small'),
+        ]:
+            if col in filtered_details.columns:
+                detail_display.append(col)
+                detail_col_config[col] = st.column_config.TextColumn(label, width=width)
+        
+        for col, label, fmt in [
+            ('demand_qty', 'Demand', "%.0f"),
+            ('at_risk_qty', 'At Risk Qty', "%.0f"),
+            ('at_risk_value_usd', 'At Risk ($)', "$ %.0f"),
+            ('demand_value_usd', 'Demand Value ($)', "$ %.0f"),
+            ('shortage_qty', 'Product Shortage', "%.0f"),
+        ]:
+            if col in filtered_details.columns:
+                filtered_details[col] = pd.to_numeric(filtered_details[col], errors='coerce').fillna(0).round(0)
+                detail_display.append(col)
+                detail_col_config[col] = st.column_config.NumberColumn(label, format=fmt)
+        
+        if 'status_display' in filtered_details.columns:
+            detail_display.append('status_display')
+            detail_col_config['status_display'] = st.column_config.TextColumn('Status', width='small')
+        
+        available = [c for c in detail_display if c in filtered_details.columns]
+        
+        st.caption(
+            f"Showing {len(filtered_details):,} lines — "
+            f"At Risk Qty = customer's proportional share of product shortage"
+        )
+        if available:
+            st.dataframe(
+                filtered_details[available],
+                column_config=detail_col_config,
+                use_container_width=True,
+                hide_index=True,
+                height=min(500, 35 * len(filtered_details) + 38)
+            )
 
 
 # =============================================================================

@@ -83,6 +83,7 @@ from .components import (
     
     # Drill-Down Dialog
     show_product_detail_dialog,
+    show_affected_customers_dialog,
     
     # Fragment wrappers (v2.1)
     fg_charts_fragment,
@@ -178,6 +179,7 @@ __all__ = [
     
     # Drill-Down Dialog
     'show_product_detail_dialog',
+    'show_affected_customers_dialog',
     
     # Fragment wrappers (v2.1)
     'fg_charts_fragment',

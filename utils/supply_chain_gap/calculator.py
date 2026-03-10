@@ -442,87 +442,87 @@ class SupplyChainGAPCalculator:
         demand_df: pd.DataFrame,
         gap_df: pd.DataFrame
     ) -> CustomerImpact:
-        """Calculate customer impact from shortages with line-level detail"""
+        """
+        Calculate customer impact from shortages with proportional at-risk allocation.
+        
+        Each customer × product line gets:
+        - demand_qty: customer's demand for this product
+        - shortage_qty: product-level shortage = |net_gap|
+        - total_demand: product-level total demand (denominator for proportion)
+        - at_risk_qty: customer's proportional share = demand_qty / total_demand × shortage_qty
+        - at_risk_value_usd: at_risk_qty × avg_unit_price_usd
+        - demand_value_usd: customer's total demand value (for context)
+        - gap_status: severity level of the product shortage
+        """
         if demand_df.empty or gap_df.empty:
             return CustomerImpact()
         
-        shortage_products = gap_df[gap_df['net_gap'] < 0]['product_id'].tolist()
-        
-        if not shortage_products:
+        # Only shortage products
+        shortage_gap = gap_df[gap_df['net_gap'] < 0].copy()
+        if shortage_gap.empty:
             return CustomerImpact()
         
+        shortage_products = shortage_gap['product_id'].tolist()
         affected_demand = demand_df[demand_df['product_id'].isin(shortage_products)]
         
         if affected_demand.empty or 'customer' not in affected_demand.columns:
             return CustomerImpact()
         
         affected_customers = affected_demand['customer'].dropna().unique().tolist()
-        at_risk_value = gap_df[gap_df['net_gap'] < 0]['at_risk_value'].sum()
+        at_risk_value = shortage_gap['at_risk_value'].sum()
         
-        # Build line-level detail: each row = customer × product
+        # Build line-level detail with proportional at-risk allocation
         details = pd.DataFrame()
         try:
-            gap_cols = ['product_id', 'pt_code', 'product_name', 'net_gap', 'gap_status']
-            if 'package_size' in gap_df.columns:
-                gap_cols.append('package_size')
-            if 'standard_uom' in gap_df.columns:
-                gap_cols.append('standard_uom')
+            # Prepare product-level info from gap_df (shortage products only)
+            product_cols = ['product_id', 'total_demand', 'net_gap', 'gap_status', 'avg_unit_price_usd']
+            for opt_col in ['pt_code', 'product_name', 'brand', 'package_size', 'standard_uom']:
+                if opt_col in gap_df.columns:
+                    product_cols.append(opt_col)
             
-            detail_merge = affected_demand.merge(
-                gap_df[gap_cols],
-                on='product_id',
-                how='inner',
-                suffixes=('', '_gap')
-            )
+            available_product_cols = [c for c in product_cols if c in shortage_gap.columns]
+            product_info = shortage_gap[available_product_cols].copy()
+            product_info['shortage_qty'] = product_info['net_gap'].abs()
             
-            if not detail_merge.empty:
-                # Aggregate per customer-product line
-                line_agg = {
-                    'required_quantity': 'sum',
-                }
-                if 'total_value_usd' in detail_merge.columns:
-                    line_agg['total_value_usd'] = 'sum'
-                
-                # Use pt_code from gap (no suffix) for grouping
-                pt_code_col = 'pt_code' if 'pt_code' in detail_merge.columns else 'pt_code_gap'
-                product_name_col = 'product_name' if 'product_name' in detail_merge.columns else 'product_name_gap'
-                
-                group_cols = ['customer', 'product_id']
-                lines = detail_merge.groupby(group_cols).agg(line_agg).reset_index()
-                lines.rename(columns={
-                    'required_quantity': 'demand_qty',
-                    'total_value_usd': 'demand_value_usd'
-                }, inplace=True)
-                
-                # Add product info back (first values)
-                product_info_cols = ['product_id', pt_code_col, product_name_col, 'net_gap']
-                if 'package_size' in detail_merge.columns:
-                    product_info_cols.append('package_size')
-                elif 'package_size_gap' in detail_merge.columns:
-                    product_info_cols.append('package_size_gap')
-                if 'standard_uom' in detail_merge.columns:
-                    product_info_cols.append('standard_uom')
-                elif 'standard_uom_gap' in detail_merge.columns:
-                    product_info_cols.append('standard_uom_gap')
-                
-                product_info = detail_merge[product_info_cols].drop_duplicates(subset=['product_id'])
-                
-                # Normalize column names
-                rename_map = {}
-                if pt_code_col != 'pt_code':
-                    rename_map[pt_code_col] = 'pt_code'
-                if product_name_col != 'product_name':
-                    rename_map[product_name_col] = 'product_name'
-                if 'package_size_gap' in product_info.columns:
-                    rename_map['package_size_gap'] = 'package_size'
-                if 'standard_uom_gap' in product_info.columns:
-                    rename_map['standard_uom_gap'] = 'standard_uom'
-                if rename_map:
-                    product_info.rename(columns=rename_map, inplace=True)
-                
-                details = lines.merge(product_info, on='product_id', how='left')
-                details = details.sort_values(['customer', 'demand_qty'], ascending=[True, False]).reset_index(drop=True)
-                
+            # Aggregate demand per customer × product
+            line_agg = {'required_quantity': 'sum'}
+            if 'total_value_usd' in affected_demand.columns:
+                line_agg['total_value_usd'] = 'sum'
+            
+            lines = affected_demand.groupby(['customer', 'product_id']).agg(line_agg).reset_index()
+            lines.rename(columns={
+                'required_quantity': 'demand_qty',
+                'total_value_usd': 'demand_value_usd'
+            }, inplace=True)
+            
+            # Merge with product info
+            details = lines.merge(product_info, on='product_id', how='left')
+            
+            # Proportional at-risk allocation
+            # at_risk_qty = (customer_demand / product_total_demand) × shortage_qty
+            details['total_demand'] = details['total_demand'].fillna(0)
+            details['shortage_qty'] = details['shortage_qty'].fillna(0)
+            details['avg_unit_price_usd'] = details['avg_unit_price_usd'].fillna(0)
+            
+            details['at_risk_qty'] = np.where(
+                details['total_demand'] > 0,
+                (details['demand_qty'] / details['total_demand']) * details['shortage_qty'],
+                0
+            ).round(0)
+            
+            # Cap: customer can't be at risk for more than they ordered
+            details['at_risk_qty'] = details[['at_risk_qty', 'demand_qty']].min(axis=1)
+            
+            details['at_risk_value_usd'] = (
+                details['at_risk_qty'] * details['avg_unit_price_usd']
+            ).round(2)
+            
+            # Sort: highest at-risk value first within each customer
+            details = details.sort_values(
+                ['at_risk_value_usd', 'customer'],
+                ascending=[False, True]
+            ).reset_index(drop=True)
+            
         except Exception as e:
             logger.warning(f"Could not build customer impact details: {e}")
         
