@@ -29,6 +29,57 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# NUMBER FORMATTING HELPER
+# =============================================================================
+
+def _styled_dataframe(
+    df: pd.DataFrame,
+    qty_cols: Optional[List[str]] = None,
+    currency_cols: Optional[List[str]] = None,
+    pct_cols: Optional[List[str]] = None,
+    decimal_cols: Optional[Dict[str, int]] = None
+) -> 'pd.io.formats.style.Styler':
+    """
+    Apply thousand-separator formatting via pandas Styler.
+    
+    Streamlit's NumberColumn sprintf-js does NOT support %,.0f comma grouping.
+    Use Styler.format instead — rendering shows commas while data stays numeric (sortable).
+    
+    Args:
+        df: DataFrame to style
+        qty_cols: columns to format as integers with comma: 221,500
+        currency_cols: columns to format as currency: $701,928
+        pct_cols: columns to format as percentage: 85.0%
+        decimal_cols: dict {col: n_decimals} for decimal formatting
+    """
+    format_dict = {}
+    
+    if qty_cols:
+        for col in qty_cols:
+            if col in df.columns:
+                format_dict[col] = '{:,.0f}'
+    
+    if currency_cols:
+        for col in currency_cols:
+            if col in df.columns:
+                format_dict[col] = '${:,.0f}'
+    
+    if pct_cols:
+        for col in pct_cols:
+            if col in df.columns:
+                format_dict[col] = '{:.1f}%'
+    
+    if decimal_cols:
+        for col, n in decimal_cols.items():
+            if col in df.columns:
+                format_dict[col] = f'{{:,.{n}f}}'
+    
+    if format_dict:
+        return df.style.format(format_dict, na_rep='-')
+    return df
+
+
+# =============================================================================
 # DATA FRESHNESS INDICATOR
 # =============================================================================
 
@@ -256,25 +307,30 @@ def show_affected_customers_dialog():
         cust_col_config = {
             'customer': st.column_config.TextColumn('Customer', width='large'),
             'products_affected': st.column_config.NumberColumn('Products', format="%d", width='small'),
-            'demand_qty': st.column_config.NumberColumn('Total Demand', format="%,.0f"),
+            'demand_qty': st.column_config.NumberColumn('Total Demand'),
         }
         cust_display = ['customer', 'products_affected', 'demand_qty']
         
         if 'at_risk_qty' in cust_summary.columns:
             cust_display.append('at_risk_qty')
-            cust_col_config['at_risk_qty'] = st.column_config.NumberColumn('At Risk Qty', format="%,.0f")
+            cust_col_config['at_risk_qty'] = st.column_config.NumberColumn('At Risk Qty')
         if 'at_risk_value_usd' in cust_summary.columns:
             cust_display.append('at_risk_value_usd')
-            cust_col_config['at_risk_value_usd'] = st.column_config.NumberColumn('At Risk ($)', format="$ %,.0f")
+            cust_col_config['at_risk_value_usd'] = st.column_config.NumberColumn('At Risk ($)')
         if 'demand_value_usd' in cust_summary.columns:
             cust_display.append('demand_value_usd')
-            cust_col_config['demand_value_usd'] = st.column_config.NumberColumn('Demand Value ($)', format="$ %,.0f")
+            cust_col_config['demand_value_usd'] = st.column_config.NumberColumn('Demand Value ($)')
         
         available = [c for c in cust_display if c in cust_summary.columns]
         
         st.caption(f"{len(cust_summary)} customers — sorted by at-risk value")
-        st.dataframe(
+        styled = _styled_dataframe(
             cust_summary[available],
+            qty_cols=['demand_qty', 'at_risk_qty'],
+            currency_cols=['at_risk_value_usd', 'demand_value_usd']
+        )
+        st.dataframe(
+            styled,
             column_config=cust_col_config,
             use_container_width=True,
             hide_index=True,
@@ -334,16 +390,16 @@ def show_affected_customers_dialog():
         
         if 'shortage_qty' in prod_summary.columns:
             prod_display.append('shortage_qty')
-            prod_col_config['shortage_qty'] = st.column_config.NumberColumn('Shortage', format="%,.0f")
+            prod_col_config['shortage_qty'] = st.column_config.NumberColumn('Shortage')
         
-        for col, label, fmt in [
-            ('demand_qty', 'Total Demand', "%,.0f"),
-            ('at_risk_qty', 'At Risk Qty', "%,.0f"),
-            ('at_risk_value_usd', 'At Risk ($)', "$ %,.0f"),
+        for col, label in [
+            ('demand_qty', 'Total Demand'),
+            ('at_risk_qty', 'At Risk Qty'),
+            ('at_risk_value_usd', 'At Risk ($)'),
         ]:
             if col in prod_summary.columns:
                 prod_display.append(col)
-                prod_col_config[col] = st.column_config.NumberColumn(label, format=fmt)
+                prod_col_config[col] = st.column_config.NumberColumn(label)
         
         if 'status_display' in prod_summary.columns:
             prod_display.append('status_display')
@@ -352,8 +408,13 @@ def show_affected_customers_dialog():
         available = [c for c in prod_display if c in prod_summary.columns]
         
         st.caption(f"{len(prod_summary)} shortage products — sorted by at-risk value")
-        st.dataframe(
+        styled = _styled_dataframe(
             prod_summary[available],
+            qty_cols=['shortage_qty', 'demand_qty', 'at_risk_qty'],
+            currency_cols=['at_risk_value_usd']
+        )
+        st.dataframe(
+            styled,
             column_config=prod_col_config,
             use_container_width=True,
             hide_index=True,
@@ -397,17 +458,17 @@ def show_affected_customers_dialog():
                 detail_display.append(col)
                 detail_col_config[col] = st.column_config.TextColumn(label, width=width)
         
-        for col, label, fmt in [
-            ('demand_qty', 'Demand', "%,.0f"),
-            ('at_risk_qty', 'At Risk Qty', "%,.0f"),
-            ('at_risk_value_usd', 'At Risk ($)', "$ %,.0f"),
-            ('demand_value_usd', 'Demand Value ($)', "$ %,.0f"),
-            ('shortage_qty', 'Product Shortage', "%,.0f"),
+        for col, label in [
+            ('demand_qty', 'Demand'),
+            ('at_risk_qty', 'At Risk Qty'),
+            ('at_risk_value_usd', 'At Risk ($)'),
+            ('demand_value_usd', 'Demand Value ($)'),
+            ('shortage_qty', 'Product Shortage'),
         ]:
             if col in filtered_details.columns:
                 filtered_details[col] = pd.to_numeric(filtered_details[col], errors='coerce').fillna(0).round(0)
                 detail_display.append(col)
-                detail_col_config[col] = st.column_config.NumberColumn(label, format=fmt)
+                detail_col_config[col] = st.column_config.NumberColumn(label)
         
         if 'status_display' in filtered_details.columns:
             detail_display.append('status_display')
@@ -420,8 +481,13 @@ def show_affected_customers_dialog():
             f"At Risk Qty = customer's proportional share of product shortage"
         )
         if available:
-            st.dataframe(
+            styled = _styled_dataframe(
                 filtered_details[available],
+                qty_cols=['demand_qty', 'at_risk_qty', 'shortage_qty'],
+                currency_cols=['at_risk_value_usd', 'demand_value_usd']
+            )
+            st.dataframe(
+                styled,
                 column_config=detail_col_config,
                 use_container_width=True,
                 hide_index=True,
@@ -509,12 +575,12 @@ def _get_column_config_fg() -> Dict[str, Any]:
         'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
         'brand': st.column_config.TextColumn('Brand', width='small'),
         'standard_uom': st.column_config.TextColumn('UOM', width='small'),
-        'total_supply': st.column_config.NumberColumn('Supply', format="%,.0f"),
-        'total_demand': st.column_config.NumberColumn('Demand', format="%,.0f"),
-        'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
+        'total_supply': st.column_config.NumberColumn('Supply'),
+        'total_demand': st.column_config.NumberColumn('Demand'),
+        'net_gap': st.column_config.NumberColumn('GAP'),
         'coverage_pct': st.column_config.ProgressColumn('Coverage', format="%.0f%%", min_value=0, max_value=200),
         'gap_status_display': st.column_config.TextColumn('Status', width='medium'),
-        'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %,.0f"),
+        'at_risk_value': st.column_config.NumberColumn('At Risk ($)'),
         'customer_count': st.column_config.NumberColumn('Customers', format="%d"),
     }
 
@@ -579,9 +645,16 @@ def render_fg_table(
     
     selected_product_id = None
     
+    # Apply thousand-separator styling
+    styled = _styled_dataframe(
+        page_df[available_cols],
+        qty_cols=['total_supply', 'total_demand', 'net_gap'],
+        currency_cols=['at_risk_value']
+    )
+    
     if enable_selection:
         event = st.dataframe(
-            page_df[available_cols],
+            styled,
             column_config=_get_column_config_fg(),
             use_container_width=True,
             hide_index=True,
@@ -597,7 +670,7 @@ def render_fg_table(
                 selected_product_id = int(page_df.iloc[row_idx]['product_id'])
     else:
         st.dataframe(
-            page_df[available_cols],
+            styled,
             column_config=_get_column_config_fg(),
             use_container_width=True,
             hide_index=True,
@@ -654,15 +727,20 @@ def render_manufacturing_table(
         })
     
     display_df = pd.DataFrame(display_data)
-    st.dataframe(
+    styled = _styled_dataframe(
         display_df,
+        qty_cols=['net_gap'],
+        currency_cols=['at_risk_value']
+    )
+    st.dataframe(
+        styled,
         column_config={
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Part Number', width='medium'),
             'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
             'brand': st.column_config.TextColumn('Brand', width='small'),
-            'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
-            'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %,.0f"),
+            'net_gap': st.column_config.NumberColumn('GAP'),
+            'at_risk_value': st.column_config.NumberColumn('At Risk ($)'),
             'can_produce': st.column_config.TextColumn('Producible', width='small'),
             'production_status': st.column_config.TextColumn('Status', width='small'),
             'reason': st.column_config.TextColumn('Reason', width='medium'),
@@ -703,15 +781,20 @@ def render_trading_table(
     display_cols = ['pt_code', 'product_name', 'package_size', 'brand', 'net_gap', 'at_risk_value', 'action']
     available = [c for c in display_cols if c in page_df.columns]
     
-    st.dataframe(
+    styled = _styled_dataframe(
         page_df[available],
+        qty_cols=['net_gap'],
+        currency_cols=['at_risk_value']
+    )
+    st.dataframe(
+        styled,
         column_config={
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Part Number', width='medium'),
             'package_size': st.column_config.TextColumn('Pkg Size', width='small'),
             'brand': st.column_config.TextColumn('Brand', width='small'),
-            'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
-            'at_risk_value': st.column_config.NumberColumn('At Risk ($)', format="$ %,.0f"),
+            'net_gap': st.column_config.NumberColumn('GAP'),
+            'at_risk_value': st.column_config.NumberColumn('At Risk ($)'),
             'action': st.column_config.TextColumn('Action', width='small'),
         },
         use_container_width=True, hide_index=True,
@@ -785,14 +868,18 @@ def render_raw_material_table(
     
     display_cols += ['total_required_qty', 'total_supply', 'net_gap', 'coverage_pct']
     col_config.update({
-        'total_required_qty': st.column_config.NumberColumn('Required', format="%,.0f"),
-        'total_supply': st.column_config.NumberColumn('Supply', format="%,.0f"),
-        'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
+        'total_required_qty': st.column_config.NumberColumn('Required'),
+        'total_supply': st.column_config.NumberColumn('Supply'),
+        'net_gap': st.column_config.NumberColumn('GAP'),
         'coverage_pct': st.column_config.ProgressColumn('Coverage', format="%.0f%%", min_value=0, max_value=200),
     })
     available = [c for c in display_cols if c in page_df.columns]
     
-    st.dataframe(page_df[available], column_config=col_config, use_container_width=True,
+    styled = _styled_dataframe(
+        page_df[available],
+        qty_cols=['total_required_qty', 'total_supply', 'net_gap']
+    )
+    st.dataframe(styled, column_config=col_config, use_container_width=True,
                  hide_index=True, height=min(400, 35 * len(page_df) + 38))
     
     return {'page': current_page, 'total_pages': total_pages,
@@ -832,17 +919,21 @@ def render_semi_finished_table(
             lambda x: '✅ Supply covers' if x >= 0 else '🔽 Shortage propagates')
         available.append('netting_status')
     
-    st.dataframe(
+    styled = _styled_dataframe(
         page_df[available],
+        qty_cols=['required_qty', 'total_supply', 'net_gap']
+    )
+    st.dataframe(
+        styled,
         column_config={
             'material_pt_code': st.column_config.TextColumn('Code', width='small'),
             'material_name': st.column_config.TextColumn('Material', width='medium'),
             'material_brand': st.column_config.TextColumn('Brand', width='small'),
             'material_uom': st.column_config.TextColumn('UOM', width='small'),
             'bom_level': st.column_config.NumberColumn('Level', format="%d", width='small'),
-            'required_qty': st.column_config.NumberColumn('Required', format="%,.0f"),
-            'total_supply': st.column_config.NumberColumn('Supply', format="%,.0f"),
-            'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
+            'required_qty': st.column_config.NumberColumn('Required'),
+            'total_supply': st.column_config.NumberColumn('Supply'),
+            'net_gap': st.column_config.NumberColumn('GAP'),
             'netting_status': st.column_config.TextColumn('Netting', width='medium'),
         },
         use_container_width=True, hide_index=True,
@@ -898,13 +989,14 @@ def render_action_table(
     end_idx = min(start_idx + items_per_page, total_items)
     page_df = all_df.iloc[start_idx:end_idx]
     
+    styled = _styled_dataframe(page_df, qty_cols=['quantity'])
     st.dataframe(
-        page_df,
+        styled,
         column_config={
             'action_display': st.column_config.TextColumn('Action', width='medium'),
             'pt_code': st.column_config.TextColumn('Code', width='small'),
             'product_name': st.column_config.TextColumn('Name', width='medium'),
-            'quantity': st.column_config.NumberColumn('Qty', format="%,.0f"),
+            'quantity': st.column_config.NumberColumn('Qty'),
             'uom': st.column_config.TextColumn('UOM', width='small'),
             'priority': st.column_config.NumberColumn('Priority', format="%d"),
             'reason': st.column_config.TextColumn('Reason', width='medium'),
@@ -1059,15 +1151,16 @@ def _render_dialog_manufacturing(result, product_id, product, prod_status):
         })
     
     mat_df = pd.DataFrame(mat_data)
-    st.dataframe(mat_df, column_config={
+    styled = _styled_dataframe(mat_df, qty_cols=['total_supply', 'net_gap'])
+    st.dataframe(styled, column_config={
         'material_pt_code': st.column_config.TextColumn('Code', width='small'),
         'material_name': st.column_config.TextColumn('Material', width='medium'),
         'material_brand': st.column_config.TextColumn('Brand', width='small'),
         'type_label': st.column_config.TextColumn('Type', width='small'),
         'quantity_per_output': st.column_config.NumberColumn('Qty/Output', format="%.2f"),
         'scrap_rate': st.column_config.NumberColumn('Scrap %', format="%.1f%%"),
-        'total_supply': st.column_config.NumberColumn('Supply', format="%,.0f"),
-        'net_gap': st.column_config.NumberColumn('GAP', format="%,.0f"),
+        'total_supply': st.column_config.NumberColumn('Supply'),
+        'net_gap': st.column_config.NumberColumn('GAP'),
         'status_icon': st.column_config.TextColumn('', width='small'),
     }, use_container_width=True, hide_index=True, height=min(300, 35 * len(mat_df) + 38))
     
