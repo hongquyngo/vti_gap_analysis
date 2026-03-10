@@ -444,6 +444,7 @@ class SupplyChainDataLoader:
             material_name,
             material_uom,
             material_brand,
+            material_package_size,
             material_type,
             output_product_id,
             output_pt_code,
