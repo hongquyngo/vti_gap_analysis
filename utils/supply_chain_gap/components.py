@@ -93,6 +93,7 @@ def render_data_freshness(state, on_refresh=None):
 def render_kpi_cards(result: SupplyChainGAPResult):
     """
     Render focused KPI cards — only actionable metrics.
+    Uses st.metric for native Streamlit styling with colored containers.
     
     Row 1: Situation (what's the problem?)
     Row 2: Actions (what needs to be done?)
@@ -100,120 +101,158 @@ def render_kpi_cards(result: SupplyChainGAPResult):
     
     metrics = result.get_metrics()
     
-    # Row 1: Situation — 4 core metrics for decision-making
+    # Row 1: Situation — 4 core metrics
     cols = st.columns(4)
     
     with cols[0]:
-        _kpi_card("FG Shortage", metrics.get('fg_shortage', 0), icon="🔴", color="#DC2626",
-                   tooltip="Số sản phẩm có Net GAP < 0\nNet GAP = Available Supply - Total Demand\nAvailable Supply = MAX(0, Total Supply - Safety Stock)")
+        fg_total = metrics.get('fg_total', 0)
+        fg_short = metrics.get('fg_shortage', 0)
+        st.metric(
+            label="🔴 FG Shortage",
+            value=f"{fg_short:,}",
+            delta=f"of {fg_total:,} products",
+            delta_color="off",
+            help="Số sản phẩm có Net GAP < 0\nNet GAP = Available Supply - Total Demand\nAvailable Supply = MAX(0, Total Supply - Safety Stock)"
+        )
     
     with cols[1]:
         at_risk = metrics.get('at_risk_value', 0)
-        _kpi_card("At Risk Value", f"${at_risk:,.0f}", icon="💰", color="#F59E0B",
-                   tooltip="Tổng giá trị rủi ro (USD)\n= ∑ |Net GAP| × avg_unit_price_usd\nChỉ tính cho sản phẩm shortage")
+        st.metric(
+            label="💰 At Risk Value",
+            value=f"${at_risk:,.0f}",
+            help="Tổng giá trị rủi ro (USD)\n= ∑ |Net GAP| × avg_unit_price_usd\nChỉ tính cho sản phẩm shortage"
+        )
     
     with cols[2]:
-        _kpi_card("Affected Customers", metrics.get('affected_customers', 0), icon="👥", color="#8B5CF6",
-                   tooltip="Số khách hàng có đơn hàng liên quan đến sản phẩm đang shortage")
+        st.metric(
+            label="👥 Affected Customers",
+            value=f"{metrics.get('affected_customers', 0):,}",
+            help="Số khách hàng có đơn hàng liên quan đến sản phẩm đang shortage"
+        )
         _render_customer_popover(result)
     
     with cols[3]:
-        _kpi_card("Raw Shortage", metrics.get('raw_shortage', 0), icon="⚠️", color="#DC2626",
-                   tooltip="Số nguyên vật liệu có Net GAP < 0\nKhông đủ cho nhu cầu sản xuất + MO pending")
+        raw_short = metrics.get('raw_shortage', 0)
+        raw_total = metrics.get('raw_total', 0)
+        st.metric(
+            label="⚠️ Raw Shortage",
+            value=f"{raw_short:,}",
+            delta=f"of {raw_total:,} materials" if raw_total > 0 else None,
+            delta_color="off",
+            help="Số nguyên vật liệu có Net GAP < 0\nKhông đủ cho nhu cầu sản xuất + MO pending"
+        )
     
-    # Row 2: Actions — what needs to be done
+    # Row 2: Actions
     st.markdown("##### 📋 Actions Required")
     cols = st.columns(3)
     
     with cols[0]:
-        _kpi_card("MO to Create", metrics.get('mo_count', 0), icon="🏭", color="#3B82F6",
-                   tooltip="Lệnh sản xuất cần tạo\nCho sản phẩm Manufacturing có shortage\nBao gồm: CREATE_MO, WAIT_RAW, USE_ALTERNATIVE")
+        st.metric(
+            label="🏭 MO to Create",
+            value=f"{metrics.get('mo_count', 0):,}",
+            help="Lệnh sản xuất cần tạo cho sản phẩm Manufacturing có shortage\nBao gồm: CREATE_MO, WAIT_RAW, USE_ALTERNATIVE"
+        )
     
     with cols[1]:
-        _kpi_card("PO for FG", metrics.get('po_fg_count', 0), icon="🛒", color="#10B981",
-                   tooltip="PO mua thành phẩm cần tạo\nCho sản phẩm Trading (không có BOM) đang shortage")
+        st.metric(
+            label="🛒 PO for FG",
+            value=f"{metrics.get('po_fg_count', 0):,}",
+            help="PO mua thành phẩm cần tạo cho sản phẩm Trading (không có BOM) đang shortage"
+        )
     
     with cols[2]:
-        _kpi_card("PO for Raw", metrics.get('po_raw_count', 0), icon="📦", color="#8B5CF6",
-                   tooltip="PO mua nguyên vật liệu cần tạo\nCho NVL chính đang shortage và không có alternative đủ")
-
-
-def _kpi_card(label: str, value: Any, icon: str = "📊", color: str = "#3B82F6", tooltip: str = ""):
-    """Render single KPI card with optional tooltip"""
-    tooltip_attr = f'title="{tooltip}"' if tooltip else ''
-    tooltip_icon = f'<span title="{tooltip}" style="cursor:help;font-size:12px;color:#9CA3AF;position:absolute;top:8px;right:10px;">ⓘ</span>' if tooltip else ''
-    st.markdown(f"""
-    <div {tooltip_attr} style="
-        background: white;
-        border-radius: 8px;
-        padding: 12px 16px;
-        border-left: 4px solid {color};
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        position: relative;
-    ">
-        {tooltip_icon}
-        <div style="font-size: 20px; margin-bottom: 4px;">{icon}</div>
-        <div style="font-size: 24px; font-weight: 700; color: #1F2937;">{value}</div>
-        <div style="font-size: 12px; color: #6B7280;">{label}</div>
-    </div>
-    """, unsafe_allow_html=True)
+        st.metric(
+            label="📦 PO for Raw",
+            value=f"{metrics.get('po_raw_count', 0):,}",
+            help="PO mua NVL cần tạo cho NVL chính đang shortage và không có alternative đủ"
+        )
 
 
 def _render_customer_popover(result: SupplyChainGAPResult):
-    """Render popover with affected customer details"""
+    """Render wide popover with line-level customer × product details"""
     
     impact = result.customer_impact
     if not impact or impact.affected_count == 0:
         return
     
-    with st.popover("👁 View Details"):
-        st.markdown("#### 👥 Affected Customers")
-        st.caption(f"{impact.affected_count} customers impacted · ${impact.at_risk_value:,.0f} USD at risk")
+    with st.popover("👁 View Details", use_container_width=True):
+        st.markdown("#### 👥 Affected Customers Detail")
         
-        # Detail table if available
+        # Summary metrics
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Customers Impacted", f"{impact.affected_count:,}")
+        with col2:
+            st.metric("Total At Risk", f"${impact.at_risk_value:,.0f}")
+        
+        st.divider()
+        
+        # Line-level detail table
         if impact.details is not None and not impact.details.empty:
             details = impact.details.copy()
             
-            # Ensure numeric
-            if 'shortage_products' in details.columns:
-                details['shortage_products'] = pd.to_numeric(details['shortage_products'], errors='coerce').fillna(0).astype(int)
-            if 'total_demand_qty' in details.columns:
-                details['total_demand_qty'] = pd.to_numeric(details['total_demand_qty'], errors='coerce').fillna(0).round(0)
+            # Filter by customer (search)
+            customers = sorted(details['customer'].dropna().unique().tolist()) if 'customer' in details.columns else []
+            if customers:
+                selected_customer = st.selectbox(
+                    "Filter by customer",
+                    options=['All'] + customers,
+                    key="scg_customer_filter"
+                )
+                if selected_customer != 'All':
+                    details = details[details['customer'] == selected_customer]
+            
+            # Prepare display columns
+            display_cols = []
+            col_config = {}
+            
+            if 'customer' in details.columns:
+                display_cols.append('customer')
+                col_config['customer'] = st.column_config.TextColumn('Customer', width='medium')
+            
+            if 'pt_code' in details.columns:
+                display_cols.append('pt_code')
+                col_config['pt_code'] = st.column_config.TextColumn('Product Code', width='small')
+            
+            if 'product_name' in details.columns:
+                display_cols.append('product_name')
+                col_config['product_name'] = st.column_config.TextColumn('Product Name', width='medium')
+            
+            if 'package_size' in details.columns:
+                display_cols.append('package_size')
+                col_config['package_size'] = st.column_config.TextColumn('Pkg Size', width='small')
+            
+            if 'standard_uom' in details.columns:
+                display_cols.append('standard_uom')
+                col_config['standard_uom'] = st.column_config.TextColumn('UOM', width='small')
+            
+            if 'demand_qty' in details.columns:
+                details['demand_qty'] = pd.to_numeric(details['demand_qty'], errors='coerce').fillna(0).round(0)
+                display_cols.append('demand_qty')
+                col_config['demand_qty'] = st.column_config.NumberColumn('Demand Qty', format="%.0f")
+            
             if 'demand_value_usd' in details.columns:
                 details['demand_value_usd'] = pd.to_numeric(details['demand_value_usd'], errors='coerce').fillna(0).round(0)
-            
-            display_cols = {
-                'customer': 'Customer',
-                'shortage_products': '# Products',
-                'total_demand_qty': 'Total Demand',
-                'demand_value_usd': 'Value (USD)',
-                'product_codes': 'Product Codes'
-            }
-            
-            available = {k: v for k, v in display_cols.items() if k in details.columns}
-            display_df = details[list(available.keys())].copy()
-            
-            col_config = {}
-            if 'customer' in display_df.columns:
-                col_config['customer'] = st.column_config.TextColumn('Customer', width='medium')
-            if 'shortage_products' in display_df.columns:
-                col_config['shortage_products'] = st.column_config.NumberColumn('# Products', format="%d")
-            if 'total_demand_qty' in display_df.columns:
-                col_config['total_demand_qty'] = st.column_config.NumberColumn('Total Demand', format="%.0f")
-            if 'demand_value_usd' in display_df.columns:
+                display_cols.append('demand_value_usd')
                 col_config['demand_value_usd'] = st.column_config.NumberColumn('Value (USD)', format="$ %.0f")
-            if 'product_codes' in display_df.columns:
-                col_config['product_codes'] = st.column_config.TextColumn('Product Codes', width='large')
             
-            st.dataframe(
-                display_df,
-                column_config=col_config,
-                hide_index=True,
-                height=min(400, 35 * len(display_df) + 38)
-            )
+            if 'net_gap' in details.columns:
+                details['net_gap'] = pd.to_numeric(details['net_gap'], errors='coerce').fillna(0).round(0)
+                display_cols.append('net_gap')
+                col_config['net_gap'] = st.column_config.NumberColumn('GAP', format="%.0f")
+            
+            available = [c for c in display_cols if c in details.columns]
+            
+            if available:
+                st.caption(f"Showing {len(details):,} lines")
+                st.dataframe(
+                    details[available],
+                    column_config=col_config,
+                    hide_index=True,
+                    height=min(500, 35 * len(details) + 38)
+                )
         else:
             # Fallback: simple list
-            st.markdown("**Customers:**")
             for cust in impact.affected_customers[:20]:
                 st.markdown(f"- {cust}")
             if len(impact.affected_customers) > 20:

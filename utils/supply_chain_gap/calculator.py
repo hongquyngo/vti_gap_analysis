@@ -408,7 +408,7 @@ class SupplyChainGAPCalculator:
         demand_df: pd.DataFrame,
         gap_df: pd.DataFrame
     ) -> CustomerImpact:
-        """Calculate customer impact from shortages with per-customer detail"""
+        """Calculate customer impact from shortages with line-level detail"""
         if demand_df.empty or gap_df.empty:
             return CustomerImpact()
         
@@ -425,41 +425,70 @@ class SupplyChainGAPCalculator:
         affected_customers = affected_demand['customer'].dropna().unique().tolist()
         at_risk_value = gap_df[gap_df['net_gap'] < 0]['at_risk_value'].sum()
         
-        # Build per-customer detail: customer → products affected, total demand qty, total value
+        # Build line-level detail: each row = customer × product
         details = pd.DataFrame()
         try:
-            # Merge demand with gap to get shortage info per customer-product
+            gap_cols = ['product_id', 'pt_code', 'product_name', 'net_gap', 'gap_status']
+            if 'package_size' in gap_df.columns:
+                gap_cols.append('package_size')
+            if 'standard_uom' in gap_df.columns:
+                gap_cols.append('standard_uom')
+            
             detail_merge = affected_demand.merge(
-                gap_df[['product_id', 'pt_code', 'product_name', 'net_gap', 'gap_status', 'at_risk_value']],
+                gap_df[gap_cols],
                 on='product_id',
                 how='inner',
                 suffixes=('', '_gap')
             )
             
-            if not detail_merge.empty and 'customer' in detail_merge.columns:
-                # Aggregate: per customer
-                agg_dict = {
-                    'product_id': 'nunique',
+            if not detail_merge.empty:
+                # Aggregate per customer-product line
+                line_agg = {
                     'required_quantity': 'sum',
                 }
                 if 'total_value_usd' in detail_merge.columns:
-                    agg_dict['total_value_usd'] = 'sum'
+                    line_agg['total_value_usd'] = 'sum'
                 
-                customer_summary = detail_merge.groupby('customer').agg(agg_dict).reset_index()
-                customer_summary.rename(columns={
-                    'product_id': 'shortage_products',
-                    'required_quantity': 'total_demand_qty',
+                # Use pt_code from gap (no suffix) for grouping
+                pt_code_col = 'pt_code' if 'pt_code' in detail_merge.columns else 'pt_code_gap'
+                product_name_col = 'product_name' if 'product_name' in detail_merge.columns else 'product_name_gap'
+                
+                group_cols = ['customer', 'product_id']
+                lines = detail_merge.groupby(group_cols).agg(line_agg).reset_index()
+                lines.rename(columns={
+                    'required_quantity': 'demand_qty',
                     'total_value_usd': 'demand_value_usd'
                 }, inplace=True)
                 
-                # Also get product list per customer
-                product_lists = detail_merge.groupby('customer').apply(
-                    lambda g: ', '.join(g['pt_code'].dropna().unique()[:5]),
-                    include_groups=False
-                ).reset_index(name='product_codes')
+                # Add product info back (first values)
+                product_info_cols = ['product_id', pt_code_col, product_name_col, 'net_gap']
+                if 'package_size' in detail_merge.columns:
+                    product_info_cols.append('package_size')
+                elif 'package_size_gap' in detail_merge.columns:
+                    product_info_cols.append('package_size_gap')
+                if 'standard_uom' in detail_merge.columns:
+                    product_info_cols.append('standard_uom')
+                elif 'standard_uom_gap' in detail_merge.columns:
+                    product_info_cols.append('standard_uom_gap')
                 
-                details = customer_summary.merge(product_lists, on='customer', how='left')
-                details = details.sort_values('shortage_products', ascending=False).reset_index(drop=True)
+                product_info = detail_merge[product_info_cols].drop_duplicates(subset=['product_id'])
+                
+                # Normalize column names
+                rename_map = {}
+                if pt_code_col != 'pt_code':
+                    rename_map[pt_code_col] = 'pt_code'
+                if product_name_col != 'product_name':
+                    rename_map[product_name_col] = 'product_name'
+                if 'package_size_gap' in product_info.columns:
+                    rename_map['package_size_gap'] = 'package_size'
+                if 'standard_uom_gap' in product_info.columns:
+                    rename_map['standard_uom_gap'] = 'standard_uom'
+                if rename_map:
+                    product_info.rename(columns=rename_map, inplace=True)
+                
+                details = lines.merge(product_info, on='product_id', how='left')
+                details = details.sort_values(['customer', 'demand_qty'], ascending=[True, False]).reset_index(drop=True)
+                
         except Exception as e:
             logger.warning(f"Could not build customer impact details: {e}")
         
