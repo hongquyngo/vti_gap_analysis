@@ -78,7 +78,7 @@ class SupplyChainGAPCalculator:
         # Filter DRAFT MO from FG supply if not included
         # unified_supply_view returns DRAFT+CONFIRMED+IN_PROGRESS for MO_EXPECTED;
         # availability_status column holds the MO status.
-        if not include_draft_mo and not fg_supply_df.empty:
+        if not include_draft_mo and not fg_supply_df.empty and 'availability_status' in fg_supply_df.columns:
             before = len(fg_supply_df)
             fg_supply_df = fg_supply_df[
                 ~((fg_supply_df['supply_source'] == 'MO_EXPECTED') & 

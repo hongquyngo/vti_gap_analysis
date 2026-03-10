@@ -78,6 +78,7 @@ class SupplyChainDataLoader:
             days_to_expiry,
             available_quantity,
             availability_date,
+            availability_status,
             warehouse_name,
             entity_name,
             unit_cost_usd,

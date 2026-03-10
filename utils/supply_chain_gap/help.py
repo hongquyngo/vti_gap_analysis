@@ -918,12 +918,18 @@ def _render_faq():
     with st.expander("**Q8: 'Existing MO Demand' là gì và tại sao cần tính?**"):
         st.markdown("""
         **Existing MO Demand** là nhu cầu NVL từ các Manufacturing Order (MO) đang ở trạng thái 
-        pending — đã tạo MO nhưng chưa xuất kho NVL.
+        CONFIRMED hoặc IN_PROGRESS — đã tạo MO nhưng chưa xuất kho NVL.
         
         **Tại sao cần tính?**
         Khi bạn có MO pending, NVL tồn kho tuy "hiển thị available" nhưng thực tế đã bị 
         "reserved" cho MO đó. Nếu không tính existing MO demand, hệ thống sẽ đánh giá NVL 
         đủ trong khi thực tế không đủ (vì một phần sẽ bị xuất cho MO cũ).
+        
+        **MO nào được tính?**
+        - Mặc định: chỉ **CONFIRMED** và **IN_PROGRESS** (MO đã cam kết)
+        - Nếu bật checkbox **"Include DRAFT MO"**: bao gồm cả **DRAFT** MO
+        - Hệ thống đảm bảo cả hai phía (FG supply + raw demand) luôn nhìn cùng tập MO 
+          → tránh double-count
         
         **Khi nào tắt?**
         - Khi MO pending đã quá hạn và có thể bị hủy
@@ -962,10 +968,14 @@ def _render_faq():
     
     with st.expander("**Q8d: 'MO Expected' trong Supply Sources là gì? Tại sao quan trọng?**"):
         st.markdown("""
-        **MO Expected** là sản lượng dự kiến từ các Manufacturing Order (MO) đang ở trạng thái 
-        CONFIRMED hoặc IN_PROGRESS nhưng chưa hoàn thành.
+        **MO Expected** là sản lượng dự kiến từ các Manufacturing Order (MO) chưa hoàn thành.
         
         **Công thức:** `pending_output = planned_qty - produced_qty`
+        
+        **MO nào được tính?**
+        - Mặc định: **CONFIRMED** và **IN_PROGRESS**
+        - Bật checkbox **"Include DRAFT MO"** → bao gồm thêm **DRAFT** MO
+        - Checkbox này đồng bộ cả hai phía: FG supply (MO Expected) + raw demand (Existing MO)
         
         **Tại sao cần bật?**
         
@@ -990,6 +1000,35 @@ def _render_faq():
         | ❌ OFF | ✅ ON | ❌ **Double-count!** Hệ thống sẽ cảnh báo |
         
         **Khuyến nghị:** Luôn bật cả hai (MO Expected + Existing MO) — đây là cấu hình mặc định.
+        """)
+    
+    with st.expander("**Q8e: Checkbox 'Include DRAFT MO' hoạt động thế nào?**"):
+        st.markdown("""
+        Checkbox này quyết định MO ở trạng thái **DRAFT** có được tính vào phân tích hay không.
+        
+        **Mặc định: TẮT (☐)**
+        - Chỉ tính MO **CONFIRMED** và **IN_PROGRESS**
+        - Lý do: DRAFT MO chưa được duyệt, có thể bị hủy bất kỳ lúc nào
+        
+        **Khi BẬT (☑):**
+        - Bao gồm thêm DRAFT MO vào **cả hai phía đồng thời**:
+          - 🏭 **FG Supply:** MO Expected output tăng (tính cả DRAFT planned_qty - produced_qty)
+          - 🧪 **Raw Demand:** Existing MO demand tăng (tính cả NVL cho DRAFT MO)
+        - Hai phía luôn đồng bộ → **không double-count**
+        
+        **Khi nào nên bật DRAFT?**
+        
+        | Tình huống | Nên bật? | Lý do |
+        |-----------|---------|-------|
+        | DRAFT MO gần như chắc chắn sẽ confirm | ✅ Bật | Phản ánh đúng kế hoạch sản xuất |
+        | Đang lên kế hoạch, MO chưa chắc chắn | ❌ Tắt | Tránh tính nguồn cung chưa cam kết |
+        | Muốn so sánh "có DRAFT" vs "không DRAFT" | 🔄 Toggle | Chạy 2 lần, so sánh kết quả |
+        | Review cuối ngày cho team sản xuất | ✅ Bật | Thấy full picture bao gồm MO đang chuẩn bị |
+        
+        **Ví dụ thực tế:**
+        - Demand = 208k, Inventory = 0, có DRAFT MO 100k
+        - ☐ **DRAFT OFF:** FG shortage = 208k, raw demand = 208k (DRAFT invisible)
+        - ☑ **DRAFT ON:** FG shortage = 108k (208k - 100k MO), raw demand = 108k + 100k = 208k ✅
         """)
     
     # -------------------------------------------------------------------------
